@@ -10,6 +10,8 @@ import { CampaignEditor } from "./campaigns/campaign-editor";
 import { ContactList } from "./contacts/contact-list";
 import { SenderList } from "./senders/sender-list";
 import { Settings } from "./settings";
+import { FormsSection } from "./forms/forms-section";
+import { AutomationsSection } from "./automations/automations-section";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
@@ -43,6 +45,10 @@ export function Dashboard() {
     }
   } else if (section === "contacts") {
     content = <ContactList />;
+  } else if (section === "forms") {
+    content = <FormsSection />;
+  } else if (section === "automations") {
+    content = <AutomationsSection />;
   } else if (section === "senders") {
     content = (
       <SenderList

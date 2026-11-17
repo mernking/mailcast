@@ -12,6 +12,8 @@ import {
   MailWarning,
   Eye,
   PencilLine,
+  Code,
+  Type,
 } from "lucide-react";
 
 import { useFetch, apiFetch, fmtDateTime, truncate } from "../use-api";
@@ -51,6 +53,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import { markdownToHtml } from "@/lib/markdown";
+import { RichTextEditor } from "./rich-text-editor";
 
 interface Sender {
   id: string;
@@ -65,6 +69,7 @@ interface CampaignDetail {
   title: string;
   subject: string;
   content: string;
+  contentType: string;
   preheader: string | null;
   status: string;
   senderId: string;
@@ -101,6 +106,68 @@ const MERGE_TAGS = [
   { label: "{{email}}", value: "{{email}}" },
 ];
 
+type EditorMode = "visual" | "html" | "markdown" | "preview";
+
+/**
+ * Best-effort conversion of an HTML body string to a markdown approximation.
+ * Not exhaustive — covers headings, lists, strong/em, links, line breaks and
+ * paragraphs. Anything unrecognized is stripped of its tags. Used when the
+ * user switches from a Visual/HTML view into the Markdown editor so the
+ * content carries over in a readable shape.
+ */
+function htmlToMarkdown(html: string): string {
+  if (!html) return "";
+  // Normalize whitespace once, then walk through tag-based replacements.
+  let s = html
+    // Block-level boundaries first so subsequent replacements stay ordered.
+    .replace(/<\/(h[1-6]|p|div|li|tr|blockquote)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    // Headings → # / ## / ### etc.
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, (_m, t) => `# ${stripTags(t).trim()}\n`)
+    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, (_m, t) => `## ${stripTags(t).trim()}\n`)
+    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, (_m, t) => `### ${stripTags(t).trim()}\n`)
+    .replace(/<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi, (_m, t) => `#### ${stripTags(t).trim()}\n`)
+    // Inline emphasis.
+    .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, c) => `**${c.trim()}**`)
+    .replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, c) => `*${c.trim()}*`)
+    .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_m, c) => `\`${c.trim()}\``)
+    // Links: [text](href)
+    .replace(/<a\b[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, text) => `[${stripTags(text).trim()}](${href})`)
+    // Images: ![alt](src)
+    .replace(/<img\b[^>]*alt=["']([^"']*)["'][^>]*src=["']([^"']*)["'][^>]*\/?>/gi, (_m, alt, src) => `![${alt}](${src})`)
+    .replace(/<img\b[^>]*src=["']([^"']*)["'][^>]*\/?>/gi, (_m, src) => `![](${src})`)
+    // Lists: bullets first, then numbered. <ul>/<ol> tags become newlines.
+    .replace(/<ul[^>]*>/gi, "\n")
+    .replace(/<\/ul>/gi, "\n")
+    .replace(/<ol[^>]*>/gi, "\n")
+    .replace(/<\/ol>/gi, "\n")
+    .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_m, c) => `- ${c.trim()}\n`)
+    // Blockquote lines.
+    .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_m, c) =>
+      stripTags(c).trim().split("\n").map((l: string) => `> ${l}`).join("\n") + "\n")
+    // Horizontal rules.
+    .replace(/<hr\s*\/?>/gi, "\n---\n")
+    // Drop any remaining tags we haven't converted.
+    .replace(/<[^>]+>/g, "")
+    // Decode a few common entities.
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // Tidy whitespace.
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return s;
+}
+
+function stripTags(html: string): string {
+  return String(html).replace(/<[^>]+>/g, "");
+}
+
 export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const isNew = campaignId === "new";
   const openCampaignEditor = useAppStore((s) => s.openCampaignEditor);
@@ -115,14 +182,16 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const [subject, setSubject] = useState("");
   const [preheader, setPreheader] = useState("");
   const [content, setContent] = useState("");
+  const [contentType, setContentType] = useState<string>("html");
   const [senderId, setSenderId] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
-  const [tab, setTab] = useState("write");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mode, setMode] = useState<EditorMode>("visual");
+  const htmlTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const mdTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Populate fields when the campaign loads (or when switching to "new").
   useEffect(() => {
@@ -131,12 +200,17 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setSubject(campaign.subject || "");
       setPreheader(campaign.preheader || "");
       setContent(campaign.content || "");
-      setSenderId(campaign.senderId || "");
+      const ct = campaign.contentType === "html" ? "html" : "markdown";
+      setContentType(ct);
+      // Default to the matching editor view for the loaded content type.
+      setMode(ct === "html" ? "visual" : "markdown");
     } else if (isNew) {
       setTitle("");
       setSubject("");
       setPreheader("");
       setContent("");
+      setContentType("html");
+      setMode("visual");
       setSenderId("");
     }
     setHydrated(true);
@@ -167,8 +241,16 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
     campaign.status === "draft" ||
     campaign.status === "failed";
 
-  const insertMergeTag = (tag: string) => {
-    const el = textareaRef.current;
+  /**
+   * Insert a merge tag at the cursor of whichever textarea is currently the
+   * active editor (HTML or Markdown). For the Visual editor we rely on the
+   * contentEditable's own selection and execCommand("insertText").
+   */
+  const insertMergeTagTextarea = (
+    ref: React.RefObject<HTMLTextAreaElement | null>,
+    tag: string
+  ) => {
+    const el = ref.current;
     if (!el) {
       setContent((c) => c + tag);
       return;
@@ -184,6 +266,53 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
     });
   };
 
+  const insertMergeTag = (tag: string) => {
+    if (mode === "html") {
+      insertMergeTagTextarea(htmlTextareaRef, tag);
+    } else if (mode === "markdown") {
+      insertMergeTagTextarea(mdTextareaRef, tag);
+    } else if (mode === "visual") {
+      // For the contentEditable editor: try execCommand("insertText"),
+      // which preserves the caret position. Fallback: append to content.
+      try {
+        const ok = document.execCommand("insertText", false, tag);
+        if (ok) return;
+      } catch {
+        /* fall through */
+      }
+      setContent((c) => c + tag);
+    }
+  };
+
+  /**
+   * Handle mode switches. When moving between HTML and Markdown formats we
+   * convert the underlying `content` so nothing is lost. Visual ↔ HTML is
+   * a pure view change (both edit the same HTML string).
+   */
+  const handleModeChange = (next: string) => {
+    const nextMode = next as EditorMode;
+    if (nextMode === mode) return;
+
+    if (nextMode === "visual" || nextMode === "html") {
+      // Target is HTML.
+      if (contentType === "markdown") {
+        const html = markdownToHtml(content);
+        setContent(html);
+        setContentType("html");
+      }
+      // If already html, nothing to convert — just switch view.
+    } else if (nextMode === "markdown") {
+      if (contentType === "html") {
+        const md = htmlToMarkdown(content);
+        setContent(md);
+        setContentType("markdown");
+      }
+      // If already markdown, nothing to convert.
+    }
+    // "preview" never converts — it reads content as-is.
+    setMode(nextMode);
+  };
+
   const handleSave = async () => {
     if (!title.trim()) return toast.error("Add a title first.");
     if (!subject.trim()) return toast.error("Add a subject first.");
@@ -196,6 +325,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         title: title.trim(),
         subject: subject.trim(),
         content,
+        contentType,
         preheader: preheader.trim() || null,
         senderId,
       };
@@ -417,57 +547,127 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         </div>
       </div>
 
-      {/* Body: Write / Preview */}
+      {/* Body: Visual / HTML / Markdown / Preview */}
       <div className="bg-card border rounded-2xl p-5 flex flex-col gap-4">
-        <Tabs value={tab} onValueChange={setTab}>
+        <Tabs value={mode} onValueChange={handleModeChange}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h3 className="font-serif text-lg text-foreground">Body</h3>
               <p className="text-xs text-muted-foreground">
-                Markdown supported. Use merge tags to personalize per recipient.
+                Write visually, hand-edit HTML, or use Markdown. Use merge tags to personalize per recipient.
               </p>
             </div>
-            <TabsList>
-              <TabsTrigger value="write" disabled={!canEdit}>
-                <PencilLine className="size-3.5" /> Write
+            <TabsList className="flex-wrap h-auto">
+              <TabsTrigger value="visual" disabled={!canEdit} className="gap-1.5">
+                <PencilLine className="size-3.5" /> Visual
               </TabsTrigger>
-              <TabsTrigger value="preview">
+              <TabsTrigger value="html" disabled={!canEdit} className="gap-1.5">
+                <Code className="size-3.5" /> HTML
+              </TabsTrigger>
+              <TabsTrigger value="markdown" disabled={!canEdit} className="gap-1.5">
+                <Type className="size-3.5" /> Markdown
+              </TabsTrigger>
+              <TabsTrigger value="preview" className="gap-1.5">
                 <Eye className="size-3.5" /> Preview
               </TabsTrigger>
             </TabsList>
           </div>
 
-          <TabsContent value="write" className="mt-4">
-            <div className="flex flex-wrap gap-2 mb-3">
-              {MERGE_TAGS.map((t) => (
-                <Button
-                  key={t.value}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-full font-mono text-xs"
-                  onClick={() => insertMergeTag(t.value)}
-                  disabled={!canEdit}
-                >
-                  {t.label}
-                </Button>
-              ))}
+          {/* Visual WYSIWYG */}
+          <TabsContent value="visual" className="mt-4">
+            <div className="flex flex-col gap-3">
+              {canEdit && (
+                <div className="flex flex-wrap gap-2">
+                  {MERGE_TAGS.map((t) => (
+                    <Button
+                      key={t.value}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full font-mono text-xs"
+                      onClick={() => insertMergeTag(t.value)}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <RichTextEditor
+                value={content}
+                onChange={setContent}
+                disabled={!canEdit || contentType !== "html"}
+              />
             </div>
-            <Textarea
-              ref={textareaRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder={"# Hello {{first_name}},\n\nHere's what's new this month..."}
-              className="min-h-[320px] font-mono text-sm rounded-lg"
-              disabled={!canEdit}
-            />
           </TabsContent>
 
+          {/* Raw HTML source */}
+          <TabsContent value="html" className="mt-4">
+            <div className="flex flex-col gap-3">
+              {canEdit && (
+                <div className="flex flex-wrap gap-2">
+                  {MERGE_TAGS.map((t) => (
+                    <Button
+                      key={t.value}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full font-mono text-xs"
+                      onClick={() => insertMergeTag(t.value)}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <Textarea
+                ref={htmlTextareaRef}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={"<h1>Hello {{first_name}}</h1>\n<p>Here is what we shipped this month...</p>"}
+                className="min-h-[320px] font-mono text-sm rounded-lg"
+                disabled={!canEdit}
+                spellCheck={false}
+              />
+            </div>
+          </TabsContent>
+
+          {/* Markdown */}
+          <TabsContent value="markdown" className="mt-4">
+            <div className="flex flex-col gap-3">
+              {canEdit && (
+                <div className="flex flex-wrap gap-2">
+                  {MERGE_TAGS.map((t) => (
+                    <Button
+                      key={t.value}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full font-mono text-xs"
+                      onClick={() => insertMergeTag(t.value)}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <Textarea
+                ref={mdTextareaRef}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={"# Hello {{first_name}},\n\nHere's what's new this month..."}
+                className="min-h-[320px] font-mono text-sm rounded-lg"
+                disabled={!canEdit}
+              />
+            </div>
+          </TabsContent>
+
+          {/* Preview */}
           <TabsContent value="preview" className="mt-4">
             <EmailPreview
               subject={subject}
               preheader={preheader}
               content={content}
+              contentType={contentType}
               fromName={
                 senderList.find((s) => s.id === senderId)?.fromName || "Your newsletter"
               }
@@ -540,21 +740,40 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   );
 }
 
+const PREVIEW_ARTICLE_CLASS = cn(
+  "text-[15px] leading-relaxed text-foreground",
+  "[&_h1]:font-serif [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-2 [&_h1]:mb-3",
+  "[&_h2]:font-serif [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2",
+  "[&_h3]:font-semibold [&_h3]:text-base [&_h3]:mt-4 [&_h3]:mb-2",
+  "[&_p]:my-3",
+  "[&_a]:underline [&_a]:font-medium",
+  "[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-3",
+  "[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-3",
+  "[&_li]:my-1",
+  "[&_blockquote]:border-l-[3px] [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_blockquote]:italic",
+  "[&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:font-mono",
+  "[&_hr]:my-5 [&_hr]:border-border",
+  "[&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-3",
+  "[&_strong]:font-semibold"
+);
+
 function EmailPreview({
   subject,
   preheader,
   content,
+  contentType,
   fromName,
 }: {
   subject: string;
   preheader: string;
   content: string;
+  contentType: string;
   fromName: string;
 }) {
   if (!content.trim()) {
     return (
       <div className="border rounded-2xl p-10 text-center text-sm text-muted-foreground bg-muted/40">
-        Nothing to preview yet. Start writing in the Write tab.
+        Nothing to preview yet. Start writing in the Visual, HTML, or Markdown tab.
       </div>
     );
   }
@@ -571,25 +790,12 @@ function EmailPreview({
           <div className="text-xs text-muted-foreground mt-1">{preheader}</div>
         )}
       </div>
-      <article
-        className={cn(
-          "text-[15px] leading-relaxed text-foreground",
-          "[&_h1]:font-serif [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-2 [&_h1]:mb-3",
-          "[&_h2]:font-serif [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2",
-          "[&_h3]:font-semibold [&_h3]:text-base [&_h3]:mt-4 [&_h3]:mb-2",
-          "[&_p]:my-3",
-          "[&_a]:underline [&_a]:font-medium",
-          "[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-3",
-          "[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-3",
-          "[&_li]:my-1",
-          "[&_blockquote]:border-l-[3px] [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_blockquote]:italic",
-          "[&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:font-mono",
-          "[&_hr]:my-5 [&_hr]:border-border",
-          "[&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-3",
-          "[&_strong]:font-semibold"
+      <article className={PREVIEW_ARTICLE_CLASS}>
+        {contentType === "html" ? (
+          <div dangerouslySetInnerHTML={{ __html: content }} />
+        ) : (
+          <ReactMarkdown>{content}</ReactMarkdown>
         )}
-      >
-        <ReactMarkdown>{content}</ReactMarkdown>
       </article>
     </div>
   );

@@ -24,6 +24,7 @@ export async function GET(
       title: campaign.title,
       subject: campaign.subject,
       content: campaign.content,
+      contentType: campaign.contentType,
       preheader: campaign.preheader,
       status: campaign.status,
       senderId: campaign.senderId,
@@ -77,6 +78,7 @@ export async function PATCH(
       title?: string;
       subject?: string;
       content?: string;
+      contentType?: string;
       preheader?: string | null;
       senderId?: string;
     };
@@ -85,6 +87,7 @@ export async function PATCH(
     if (typeof patch.title === "string" && patch.title.trim()) data.title = patch.title.trim();
     if (typeof patch.subject === "string" && patch.subject.trim()) data.subject = patch.subject.trim();
     if (typeof patch.content === "string") data.content = patch.content;
+    if (patch.contentType === "html" || patch.contentType === "markdown") data.contentType = patch.contentType;
     if (patch.preheader === null) data.preheader = null;
     else if (typeof patch.preheader === "string") data.preheader = patch.preheader.trim() || null;
     if (typeof patch.senderId === "string" && patch.senderId) {
@@ -113,6 +116,7 @@ export async function PATCH(
       title: updated.title,
       subject: updated.subject,
       content: updated.content,
+      contentType: updated.contentType,
       preheader: updated.preheader,
       status: updated.status,
       senderId: updated.senderId,

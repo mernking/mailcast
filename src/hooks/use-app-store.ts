@@ -21,6 +21,8 @@ export type DashboardSection =
   | "campaigns"
   | "contacts"
   | "senders"
+  | "forms"
+  | "automations"
   | "settings";
 
 export const useAppStore = create<AppState>()(

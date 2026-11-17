@@ -1,6 +1,9 @@
 import { markdownToHtml, markdownToText } from "./markdown";
 
+export type EmailContentType = "markdown" | "html";
+
 interface RenderOptions {
+  contentType?: EmailContentType;
   preheader?: string;
   unsubscribeEmail?: string;
 }
@@ -9,12 +12,63 @@ const FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 /**
- * Render a full HTML email document with inline styles (required for email
- * clients). Converts the markdown body, applies a clean editorial layout,
- * and appends a footer with unsubscribe / sender info for compliance.
+ * Strip content that is unsafe or undesirable in transactional/newsletter
+ * emails: scripts, styles, event handlers, javascript: URLs, and form/meta
+ * elements. Keeps tables, inline styles, images and links intact.
+ *
+ * This is a pragmatic allowlist-by-removal sanitizer for HTML authored by
+ * the account owner (not arbitrary user input from the public).
  */
-export function renderEmailHtml(md: string, opts: RenderOptions = {}): string {
-  const bodyHtml = markdownToHtml(md);
+export function sanitizeEmailHtml(html: string): string {
+  let out = html;
+  // Drop entire script/style/iframe/object/embed/form/noscript blocks.
+  out = out.replace(
+    /<(script|style|iframe|object|embed|form|noscript|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+    ""
+  );
+  // Drop standalone void/unsafe elements.
+  out = out.replace(
+    /<(input|button|textarea|select|option|meta|link|base|applet|frame|frameset)\b[^>]*\/?>/gi,
+    ""
+  );
+  // Remove all on* event handler attributes.
+  out = out.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  // Neutralize javascript:/vbscript:/data:text-html URLs in href/src.
+  out = out.replace(
+    /(href|src)\s*=\s*(["'])(?:javascript|vbscript|data:text\/html)[^"']*\2/gi,
+    '$1=$2#$2'
+  );
+  return out;
+}
+
+/** Convert an HTML string to plain text (rough, for the text/plain part). */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Render a full HTML email document with inline styles (required for email
+ * clients). When contentType is "html", the body is sanitized and used as-is;
+ * otherwise it is converted from markdown.
+ */
+export function renderEmailHtml(content: string, opts: RenderOptions = {}): string {
+  const bodyHtml =
+    opts.contentType === "html"
+      ? sanitizeEmailHtml(content)
+      : markdownToHtml(content);
   const preheader = opts.preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeHtml(opts.preheader)}</div>`
     : "";
@@ -63,23 +117,23 @@ export function renderEmailHtml(md: string, opts: RenderOptions = {}): string {
 </html>`;
 }
 
-/** Post-process marked HTML to inject email-safe inline styles. */
+/**
+ * Post-process body HTML so common tags get email-safe inline styles.
+ * If the author already supplied inline styles on a tag, leave them — the
+ * added style attribute still applies broadly for editor-generated HTML.
+ */
 function styledBody(html: string): string {
   return html
-    .replace(/<h1[^>]*>/g, '<h1 style="font-size:28px;line-height:34px;font-weight:700;margin:0 0 16px 0;letter-spacing:-0.01em">')
-    .replace(/<\/h1>/g, "</h1>")
-    .replace(/<h2[^>]*>/g, '<h2 style="font-size:22px;line-height:28px;font-weight:700;margin:28px 0 12px 0;letter-spacing:-0.01em">')
-    .replace(/<\/h2>/g, "</h2>")
-    .replace(/<h3[^>]*>/g, '<h3 style="font-size:18px;line-height:24px;font-weight:600;margin:24px 0 10px 0">')
-    .replace(/<\/h3>/g, "</h3>")
-    .replace(/<p[^>]*>/g, '<p style="margin:0 0 16px 0">')
-    .replace(/<\/p>/g, "</p>")
-    .replace(/<ul[^>]*>/g, '<ul style="margin:0 0 16px 0;padding-left:22px">')
-    .replace(/<ol[^>]*>/g, '<ol style="margin:0 0 16px 0;padding-left:22px">')
-    .replace(/<li[^>]*>/g, '<li style="margin:0 0 6px 0;line-height:26px">')
+    .replace(/<h1([^>]*)>/g, '<h1$1 style="font-size:28px;line-height:34px;font-weight:700;margin:0 0 16px 0;letter-spacing:-0.01em">')
+    .replace(/<h2([^>]*)>/g, '<h2$1 style="font-size:22px;line-height:28px;font-weight:700;margin:28px 0 12px 0;letter-spacing:-0.01em">')
+    .replace(/<h3([^>]*)>/g, '<h3$1 style="font-size:18px;line-height:24px;font-weight:600;margin:24px 0 10px 0">')
+    .replace(/<p([^>]*)>/g, '<p$1 style="margin:0 0 16px 0">')
+    .replace(/<ul([^>]*)>/g, '<ul$1 style="margin:0 0 16px 0;padding-left:22px">')
+    .replace(/<ol([^>]*)>/g, '<ol$1 style="margin:0 0 16px 0;padding-left:22px">')
+    .replace(/<li([^>]*)>/g, '<li$1 style="margin:0 0 6px 0;line-height:26px">')
     .replace(/<a\s/g, '<a style="color:#1a1a1a;text-decoration:underline;font-weight:600" ')
     .replace(/<strong>/g, '<strong style="font-weight:700">')
-    .replace(/<blockquote[^>]*>/g, '<blockquote style="margin:0 0 16px 0;padding:8px 0 8px 16px;border-left:3px solid #ececec;color:#555">')
+    .replace(/<blockquote([^>]*)>/g, '<blockquote$1 style="margin:0 0 16px 0;padding:8px 0 8px 16px;border-left:3px solid #ececec;color:#555">')
     .replace(/<hr\s*\/?>/g, '<hr style="border:none;border-top:1px solid #ececec;margin:24px 0"/>')
     .replace(/<img\s/g, '<img style="max-width:100%;height:auto;border-radius:10px;margin:0 0 16px 0" ')
     .replace(/<code>/g, '<code style="background:#f4f3ef;padding:2px 5px;border-radius:4px;font-size:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">');
@@ -93,6 +147,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export function renderEmailText(md: string): string {
-  return markdownToText(md);
+export function renderEmailText(content: string, contentType: EmailContentType = "markdown"): string {
+  return contentType === "html" ? htmlToText(content) : markdownToText(content);
 }

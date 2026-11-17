@@ -126,7 +126,8 @@ export async function POST(
         to: recip.contact.email,
         name: recip.contact.name,
         subject: campaign.subject,
-        markdown: campaign.content,
+        content: campaign.content,
+        contentType: (campaign.contentType as "markdown" | "html") ?? "markdown",
         preheader: campaign.preheader,
       });
 

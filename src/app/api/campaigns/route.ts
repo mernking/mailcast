@@ -42,12 +42,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { title, subject, content, preheader, senderId } = (body ?? {}) as {
+    const { title, subject, content, preheader, senderId, contentType } = (body ?? {}) as {
       title?: string;
       subject?: string;
       content?: string;
       preheader?: string | null;
       senderId?: string;
+      contentType?: string;
     };
 
     if (!title || title.trim().length === 0) {
@@ -73,6 +74,8 @@ export async function POST(req: NextRequest) {
         title: title.trim(),
         subject: subject.trim(),
         content,
+        contentType:
+          contentType === "html" ? "html" : "markdown",
         preheader: preheader && preheader.trim() ? preheader.trim() : null,
         senderId,
         status: "draft",
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
         title: campaign.title,
         subject: campaign.subject,
         content: campaign.content,
+        contentType: campaign.contentType,
         preheader: campaign.preheader,
         status: campaign.status,
         senderId: campaign.senderId,

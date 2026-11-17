@@ -1,6 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { decrypt } from "./crypto";
-import { renderEmailHtml, renderEmailText } from "./email-template";
+import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
 
 export interface SenderLike {
   email: string;
@@ -63,22 +63,26 @@ export interface SendCampaignArgs {
   to: string;
   name?: string | null;
   subject: string;
-  markdown: string;
+  /** Markdown body (contentType=markdown) or raw HTML body (contentType=html) */
+  content: string;
+  contentType?: EmailContentType;
   preheader?: string | null;
 }
 
 /** Send a single campaign email to one recipient with merge tags applied. */
 export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendResult> {
+  const contentType: EmailContentType = args.contentType ?? "markdown";
   const ctx: PersonalizationContext = { email: args.to, name: args.name };
   const subject = applyMerge(args.subject, ctx);
-  const bodyMd = applyMerge(args.markdown, ctx);
+  const body = applyMerge(args.content, ctx);
   const preheader = args.preheader ? applyMerge(args.preheader, ctx) : undefined;
 
-  const html = renderEmailHtml(bodyMd, {
+  const html = renderEmailHtml(body, {
+    contentType,
     preheader,
     unsubscribeEmail: args.sender.email,
   });
-  const text = renderEmailText(bodyMd);
+  const text = renderEmailText(body, contentType);
 
   try {
     const transport = getTransport(args.sender);

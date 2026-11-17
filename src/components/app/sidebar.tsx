@@ -5,6 +5,8 @@ import {
   Send,
   Users,
   Mail,
+  RectangleHorizontal,
+  Workflow,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore, type DashboardSection } from "@/hooks/use-app-store";
@@ -21,6 +23,8 @@ const NAV: NavItem[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "campaigns", label: "Campaigns", icon: Send },
   { id: "contacts", label: "Contacts", icon: Users },
+  { id: "forms", label: "Forms", icon: RectangleHorizontal },
+  { id: "automations", label: "Automations", icon: Workflow },
   { id: "senders", label: "Senders", icon: Mail },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];

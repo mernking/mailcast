@@ -24,7 +24,8 @@ model SenderAccount {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  campaigns Campaign[]
+  campaigns  Campaign[]
+  workflows  Workflow[]
 }
 
 /// A subscriber / recipient that can receive broadcasts.
@@ -33,12 +34,13 @@ model Contact {
   email     String
   name      String?
   tags      String   @default("") // comma separated
-  source    String   @default("manual") // manual | import
+  source    String   @default("manual") // manual | import | form
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  recipients CampaignRecipient[]
+  recipients   CampaignRecipient[]
+  enrollments  AutomationEnrollment[]
 
   @@index([email])
   @@index([active])
@@ -49,8 +51,10 @@ model Campaign {
   id          String   @id @default(cuid())
   title       String
   subject     String
-  /// Markdown body of the newsletter
+  /// Markdown body (when contentType=markdown) or raw HTML (when contentType=html)
   content     String
+  /// "markdown" | "html" — how `content` should be rendered
+  contentType String   @default("markdown")
   /// Short preview text shown in inbox previews
   preheader   String?
   status      String   @default("draft") // draft | sending | sent | failed
@@ -82,4 +86,81 @@ model CampaignRecipient {
 
   @@unique([campaignId, contactId])
   @@index([campaignId])
+}
+
+/// A signup form that can be embedded on a website to collect subscribers.
+model Form {
+  id              String   @id @default(cuid())
+  name            String
+  /// JSON array of { name, label, type, required, placeholder }
+  fields          String   @default("[]")
+  buttonText      String   @default("Subscribe")
+  successMessage  String   @default("Thanks for subscribing!")
+  redirectUrl     String?
+  /// Comma-separated tags added to contacts created by this form
+  tagsToAdd       String   @default("")
+  accentColor     String   @default("#1a1a1a")
+  backgroundColor String   @default("#ffffff")
+  textColor       String   @default("#1a1a1a")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submissions FormSubmission[]
+}
+
+/// A single submission to a signup form.
+model FormSubmission {
+  id        String   @id @default(cuid())
+  formId    String
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  email     String
+  name      String?
+  /// JSON of all submitted field values
+  data      String   @default("{}")
+  contactId String?
+  createdAt DateTime @default(now())
+
+  @@index([formId])
+}
+
+/// An automated email workflow triggered by events (form submit, new contact, manual).
+model Workflow {
+  id             String   @id @default(cuid())
+  name           String
+  /// "form_submit" | "contact_added" | "manual"
+  trigger        String   @default("form_submit")
+  /// JSON trigger config, e.g. { "formId": "..." }
+  triggerConfig  String   @default("{}")
+  senderId       String
+  sender         SenderAccount @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  /// JSON array of steps: [{ id, type: "send_email"|"wait"|"condition", config }]
+  steps          String   @default("[]")
+  enabled        Boolean  @default(true)
+  enrolledCount  Int      @default(0)
+  completedCount Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  enrollments AutomationEnrollment[]
+}
+
+/// A contact's progress through a workflow.
+model AutomationEnrollment {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  /// Index of the next step to execute
+  currentStep Int      @default(0)
+  /// "active" | "completed" | "failed"
+  status      String   @default("active")
+  /// When the next step should run
+  dueAt       DateTime @default(now())
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, dueAt])
+  @@index([workflowId])
 }
