@@ -11,6 +11,13 @@ import {
   Loader2,
   ArrowLeft,
   Database,
+  Send,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  CheckCircle2,
+  Info,
+  Unplug,
 } from "lucide-react";
 import { useFetch, apiFetch } from "./use-api";
 import { useAppStore } from "@/hooks/use-app-store";
@@ -23,6 +30,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +55,322 @@ interface Stats {
   activeContacts: number;
   totalCampaigns: number;
   sentCampaigns: number;
+}
+
+interface TelegramStatus {
+  configured: boolean;
+  botUsername?: string;
+  botFirstName?: string;
+  error?: string;
+}
+
+interface TelegramStats {
+  contactsWithTelegram: number;
+  contactsConnected: number;
+}
+
+/** Telegram bot card. Renders the connect form when no token is stored, or
+ *  the connected summary (bot username + reach stats) when one is. */
+function TelegramCard() {
+  const { data: status, loading, refetch: refetchStatus } = useFetch<TelegramStatus>(
+    "/api/settings/telegram"
+  );
+  // Only fetch stats when a bot is configured.
+  const { data: tgStats, refetch: refetchStats } = useFetch<TelegramStats | null>(
+    status?.configured ? "/api/settings/telegram/stats" : null
+  );
+
+  const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+
+  const refreshAll = () => {
+    refetchStatus();
+    refetchStats();
+  };
+
+  const connect = async () => {
+    if (!token.trim()) {
+      toast.error("Paste a bot token first");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; botUsername?: string }>(
+        "/api/settings/telegram",
+        { method: "PUT", body: JSON.stringify({ token: token.trim() }) }
+      );
+      toast.success(
+        res.botUsername
+          ? `Bot @${res.botUsername} connected`
+          : "Telegram bot connected"
+      );
+      setToken("");
+      setShowToken(false);
+      refreshAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect bot");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setSaving(true);
+    try {
+      await apiFetch("/api/settings/telegram", { method: "DELETE" });
+      toast.success("Telegram bot disconnected");
+      setDisconnectOpen(false);
+      setToken("");
+      refreshAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const configured = !!status?.configured;
+  const invalid = configured && !!status?.error;
+  const botUsername = status?.botUsername;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Send className="size-4" /> Telegram bot
+        </CardTitle>
+        <CardDescription>
+          Deliver newsletters to subscribers who connect a Telegram account.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Checking Telegram configuration…
+          </div>
+        ) : configured ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-sm">
+                {invalid ? (
+                  <Badge
+                    variant="outline"
+                    className="border-destructive/40 text-destructive"
+                  >
+                    <Unplug className="size-3" /> Token invalid
+                  </Badge>
+                ) : (
+                  <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700">
+                    <CheckCircle2 className="size-3" /> Connected
+                  </Badge>
+                )}
+                {botUsername ? (
+                  <span className="text-foreground">
+                    Connected as{" "}
+                    <a
+                      href={`https://t.me/${botUsername}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium underline-offset-2 hover:underline"
+                    >
+                      @{botUsername}
+                    </a>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Token stored but username unavailable
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={() => setDisconnectOpen(true)}
+                disabled={saving}
+              >
+                <Trash2 className="size-4" /> Disconnect
+              </Button>
+            </div>
+
+            {invalid && (
+              <Alert variant="destructive">
+                <Info className="size-4" />
+                <AlertTitle>Telegram rejected this token</AlertTitle>
+                <AlertDescription>
+                  {status?.error} — reconnect with a fresh token from @BotFather
+                  to resume delivery.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <Separator />
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="text-2xl font-serif text-foreground">
+                  {tgStats?.contactsWithTelegram ?? "—"}
+                </div>
+                <div className="text-muted-foreground leading-snug">
+                  contacts shared a Telegram username
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="text-2xl font-serif text-foreground">
+                  {tgStats?.contactsConnected ?? "—"}
+                </div>
+                <div className="text-muted-foreground leading-snug">
+                  have started the bot
+                </div>
+              </div>
+            </div>
+
+            <Alert>
+              <Info className="size-4" />
+              <AlertDescription>
+                Subscribers must start a conversation with{" "}
+                {botUsername ? (
+                  <a
+                    href={`https://t.me/${botUsername}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium underline-offset-2 hover:underline"
+                  >
+                    @{botUsername}
+                  </a>
+                ) : (
+                  "your bot"
+                )}{" "}
+                (send <span className="font-medium text-foreground">/start</span>) before they
+                can receive messages. New subscribers who submit a Telegram username via a
+                signup form are matched automatically once they message the bot.
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="telegram-token">Bot token</Label>
+              <div className="relative">
+                <Input
+                  id="telegram-token"
+                  type={showToken ? "text" : "password"}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="123456789:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="pr-10 font-mono text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-9 w-9"
+                  onClick={() => setShowToken((s) => !s)}
+                  aria-label={showToken ? "Hide token" : "Show token"}
+                  tabIndex={-1}
+                >
+                  {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Get one from @BotFather via <span className="font-mono">/newbot</span>.
+              </p>
+            </div>
+
+            <Button
+              className="w-fit rounded-full"
+              onClick={connect}
+              disabled={saving || !token.trim()}
+            >
+              {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              Connect bot
+            </Button>
+
+            <Alert>
+              <Info className="size-4" />
+              <AlertTitle>How Telegram delivery works</AlertTitle>
+              <AlertDescription>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>
+                    Create a bot with{" "}
+                    <a
+                      href="https://t.me/BotFather"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium underline-offset-2 hover:underline"
+                    >
+                      @BotFather
+                    </a>{" "}
+                    on Telegram: send{" "}
+                    <span className="font-mono text-foreground">/newbot</span>, then copy the
+                    API token.
+                  </li>
+                  <li>Paste the token here and click Connect.</li>
+                  <li>
+                    Add a Telegram field to your signup forms to collect usernames.
+                  </li>
+                  <li>
+                    Subscribers must send{" "}
+                    <span className="font-mono text-foreground">/start</span> to your bot
+                    once — then they can receive newsletters in their Telegram inbox.
+                  </li>
+                </ol>
+              </AlertDescription>
+            </Alert>
+
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>
+                When no bot is configured, Telegram send actions in automations are skipped
+                silently (no errors).
+              </span>
+              <a
+                href="https://t.me/BotFather"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-foreground underline-offset-2 hover:underline shrink-0"
+              >
+                Open @BotFather <ExternalLink className="size-3" />
+              </a>
+            </div>
+          </div>
+        )}
+      </CardContent>
+
+      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Telegram bot?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The bot token is removed from MailCast. Subscribers who already started the bot
+              keep their chat ids, but no new messages will be sent until you reconnect. New
+              signup submissions will not be matched until a new bot is configured.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                disconnect();
+              }}
+              disabled={saving}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {saving ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                "Disconnect"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
 }
 
 export function Settings() {
@@ -85,6 +417,8 @@ export function Settings() {
         title="Settings"
         description="Account info, limits, and data controls."
       />
+
+      <TelegramCard />
 
       <Card>
         <CardHeader>

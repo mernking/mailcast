@@ -26,6 +26,7 @@ export async function GET(
       content: campaign.content,
       contentType: campaign.contentType,
       preheader: campaign.preheader,
+      targetGroupId: campaign.targetGroupId,
       status: campaign.status,
       senderId: campaign.senderId,
       totalRecip: campaign.totalRecip,
@@ -81,6 +82,7 @@ export async function PATCH(
       contentType?: string;
       preheader?: string | null;
       senderId?: string;
+      targetGroupId?: string | null;
     };
 
     const data: Record<string, unknown> = {};
@@ -90,6 +92,8 @@ export async function PATCH(
     if (patch.contentType === "html" || patch.contentType === "markdown") data.contentType = patch.contentType;
     if (patch.preheader === null) data.preheader = null;
     else if (typeof patch.preheader === "string") data.preheader = patch.preheader.trim() || null;
+    if (patch.targetGroupId === null) data.targetGroupId = null;
+    else if (typeof patch.targetGroupId === "string") data.targetGroupId = patch.targetGroupId || null;
     if (typeof patch.senderId === "string" && patch.senderId) {
       const sender = await db.senderAccount.findUnique({ where: { id: patch.senderId } });
       if (!sender) {
@@ -118,6 +122,7 @@ export async function PATCH(
       content: updated.content,
       contentType: updated.contentType,
       preheader: updated.preheader,
+      targetGroupId: updated.targetGroupId,
       status: updated.status,
       senderId: updated.senderId,
       totalRecip: updated.totalRecip,

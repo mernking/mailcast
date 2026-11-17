@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
           tags: true,
           source: true,
           active: true,
+          telegram: true,
           createdAt: true,
         },
       }),

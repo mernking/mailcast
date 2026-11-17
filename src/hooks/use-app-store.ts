@@ -14,6 +14,10 @@ interface AppState {
   /** When set, the dashboard opens this campaign in the editor */
   editingCampaignId: string | null;
   openCampaignEditor: (id: string | null) => void;
+  /** Whether the dashboard sidebar is collapsed (icon-only) on desktop. */
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (c: boolean) => void;
 }
 
 export type DashboardSection =
@@ -35,10 +39,18 @@ export const useAppStore = create<AppState>()(
       editingCampaignId: null,
       openCampaignEditor: (id) =>
         set({ editingCampaignId: id, section: "campaigns" }),
+      sidebarCollapsed: false,
+      toggleSidebar: () =>
+        set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarCollapsed: (c) => set({ sidebarCollapsed: c }),
     }),
     {
       name: "mailcast-view",
-      partialize: (s) => ({ view: s.view, section: s.section }),
+      partialize: (s) => ({
+        view: s.view,
+        section: s.section,
+        sidebarCollapsed: s.sidebarCollapsed,
+      }),
     }
   )
 );

@@ -36,14 +36,20 @@ model Contact {
   tags      String   @default("") // comma separated
   source    String   @default("manual") // manual | import | form
   active    Boolean  @default(true)
+  /// Telegram username (without @), if collected via a form
+  telegram       String?
+  /// Telegram numeric chat id, captured when the user messages the bot
+  telegramChatId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  recipients   CampaignRecipient[]
-  enrollments  AutomationEnrollment[]
+  recipients       CampaignRecipient[]
+  enrollments      AutomationEnrollment[]
+  groupAssignments ContactGroupAssignment[]
 
   @@index([email])
   @@index([active])
+  @@index([telegram])
 }
 
 /// A newsletter broadcast campaign.
@@ -60,6 +66,9 @@ model Campaign {
   status      String   @default("draft") // draft | sending | sent | failed
   senderId    String
   sender      SenderAccount @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  /// Optional target group. If null, sends to all active contacts.
+  targetGroupId String?
+  targetGroup   ContactGroup? @relation(fields: [targetGroupId], references: [id], onDelete: SetNull)
   totalRecip  Int      @default(0)
   sentCount   Int      @default(0)
   failedCount Int      @default(0)
@@ -102,6 +111,8 @@ model Form {
   accentColor     String   @default("#1a1a1a")
   backgroundColor String   @default("#ffffff")
   textColor       String   @default("#1a1a1a")
+  /// Back-relation to the group this form feeds (the group owns the link via formId).
+  group           ContactGroup?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -123,18 +134,51 @@ model FormSubmission {
   @@index([formId])
 }
 
-/// An automated email workflow triggered by events (form submit, new contact, manual).
+/// A collection/segment of contacts. Can be tied to a form (form submissions
+/// auto-populate it) or managed manually.
+model ContactGroup {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String   @default("#1a1a1a")
+  /// If this group is tied to a form, the form's submissions populate it.
+  /// Unique so a form feeds at most one group.
+  formId      String?  @unique
+  form        Form?    @relation(fields: [formId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignments   ContactGroupAssignment[]
+  campaigns     Campaign[]
+}
+
+/// Join table for Contact <-> ContactGroup (many-to-many).
+model ContactGroupAssignment {
+  id        String   @id @default(cuid())
+  contactId String
+  groupId   String
+  contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  group     ContactGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([contactId, groupId])
+  @@index([groupId])
+}
+
+/// An automated workflow. The flow is stored as a graph ({nodes, edges}) in
+/// `steps`. The trigger is a node inside the graph; `trigger`/`triggerConfig`
+/// are denormalized mirrors for fast list display.
 model Workflow {
   id             String   @id @default(cuid())
   name           String
-  /// "form_submit" | "contact_added" | "manual"
-  trigger        String   @default("form_submit")
-  /// JSON trigger config, e.g. { "formId": "..." }
+  /// Denormalized trigger type (mirrors the trigger node) for list display.
+  trigger        String   @default("manual")
+  /// JSON trigger config mirroring the trigger node.
   triggerConfig  String   @default("{}")
   senderId       String
   sender         SenderAccount @relation(fields: [senderId], references: [id], onDelete: Restrict)
-  /// JSON array of steps: [{ id, type: "send_email"|"wait"|"condition", config }]
-  steps          String   @default("[]")
+  /// JSON graph: { nodes: [...], edges: [...] } — React Flow format.
+  steps          String   @default("{\"nodes\":[],\"edges\":[]}")
   enabled        Boolean  @default(true)
   enrolledCount  Int      @default(0)
   completedCount Int      @default(0)
@@ -144,18 +188,20 @@ model Workflow {
   enrollments AutomationEnrollment[]
 }
 
-/// A contact's progress through a workflow.
+/// A contact's progress through a workflow graph.
 model AutomationEnrollment {
   id          String   @id @default(cuid())
   workflowId  String
   workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   contactId   String
   contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  /// Index of the next step to execute
+  /// Id of the next graph node to execute.
+  currentNodeId String @default("")
+  /// Legacy step index (unused for graph workflows; kept for backward compat).
   currentStep Int      @default(0)
   /// "active" | "completed" | "failed"
   status      String   @default("active")
-  /// When the next step should run
+  /// When the next node should run
   dueAt       DateTime @default(now())
   error       String?
   createdAt   DateTime @default(now())
@@ -163,4 +209,10 @@ model AutomationEnrollment {
 
   @@index([status, dueAt])
   @@index([workflowId])
+}
+
+/// Key-value store for app settings (e.g. Telegram bot token, encrypted).
+model Setting {
+  key   String @id
+  value String
 }

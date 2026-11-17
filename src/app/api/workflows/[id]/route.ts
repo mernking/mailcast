@@ -3,16 +3,32 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const VALID_TRIGGERS = new Set(["form_submit", "contact_added", "manual"]);
+const VALID_TRIGGERS = new Set([
+  "form_submit",
+  "contact_added",
+  "contact_tagged",
+  "contact_added_to_group",
+  "manual",
+]);
 
-function safeParseSteps(raw: string): unknown[] {
+interface FlowGraph {
+  nodes?: unknown[];
+  edges?: unknown[];
+}
+
+function safeParseGraph(raw: string): FlowGraph {
   try {
-    const parsed = JSON.parse(raw || "[]");
-    if (Array.isArray(parsed)) return parsed;
+    const parsed = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return {
+        nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+      };
+    }
   } catch {
     // ignore
   }
-  return [];
+  return { nodes: [], edges: [] };
 }
 
 function safeParseTriggerConfig(raw: string): Record<string, unknown> {
@@ -69,7 +85,7 @@ export async function GET(
     const recent = workflow.enrollments.map((en) => ({
       contactEmail: en.contact?.email ?? "(missing)",
       status: en.status,
-      currentStep: en.currentStep,
+      currentNodeId: en.currentNodeId,
       dueAt: en.dueAt,
       error: en.error,
     }));
@@ -81,7 +97,7 @@ export async function GET(
       triggerConfig: safeParseTriggerConfig(workflow.triggerConfig),
       senderId: workflow.senderId,
       enabled: workflow.enabled,
-      steps: safeParseSteps(workflow.steps),
+      steps: safeParseGraph(workflow.steps),
       createdAt: workflow.createdAt,
       updatedAt: workflow.updatedAt,
       sender: workflow.sender
@@ -192,31 +208,32 @@ export async function PATCH(
     }
 
     if (patch.steps !== undefined) {
+      let graphObj: FlowGraph | null = null;
       if (typeof patch.steps === "string") {
         try {
           const parsed = JSON.parse(patch.steps);
-          if (Array.isArray(parsed)) {
-            data.steps = JSON.stringify(parsed);
-          } else {
-            return NextResponse.json(
-              { error: "steps must be a JSON-encoded array" },
-              { status: 400 }
-            );
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            graphObj = parsed as FlowGraph;
           }
         } catch {
           return NextResponse.json(
-            { error: "steps must be a JSON-encoded array" },
+            { error: "steps must be a JSON-encoded graph object { nodes, edges }" },
             { status: 400 }
           );
         }
-      } else if (Array.isArray(patch.steps)) {
-        data.steps = JSON.stringify(patch.steps);
-      } else {
+      } else if (patch.steps && typeof patch.steps === "object" && !Array.isArray(patch.steps)) {
+        graphObj = patch.steps as FlowGraph;
+      }
+      if (!graphObj) {
         return NextResponse.json(
-          { error: "steps must be an array or JSON string" },
+          { error: "steps must be a graph object { nodes, edges } or JSON string" },
           { status: 400 }
         );
       }
+      data.steps = JSON.stringify({
+        nodes: Array.isArray(graphObj.nodes) ? graphObj.nodes : [],
+        edges: Array.isArray(graphObj.edges) ? graphObj.edges : [],
+      });
     }
 
     if (typeof patch.enabled === "boolean") {
@@ -257,7 +274,7 @@ export async function PATCH(
     const recent = updated.enrollments.map((en) => ({
       contactEmail: en.contact?.email ?? "(missing)",
       status: en.status,
-      currentStep: en.currentStep,
+      currentNodeId: en.currentNodeId,
       dueAt: en.dueAt,
       error: en.error,
     }));
@@ -269,7 +286,7 @@ export async function PATCH(
       triggerConfig: safeParseTriggerConfig(updated.triggerConfig),
       senderId: updated.senderId,
       enabled: updated.enabled,
-      steps: safeParseSteps(updated.steps),
+      steps: safeParseGraph(updated.steps),
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
       sender: updated.sender

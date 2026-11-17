@@ -25,10 +25,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Select,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
   SelectContent,
-  SelectItem,
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -73,6 +75,7 @@ interface CampaignDetail {
   preheader: string | null;
   status: string;
   senderId: string;
+  targetGroupId: string | null;
   totalRecip: number;
   sentCount: number;
   failedCount: number;
@@ -98,6 +101,14 @@ interface CampaignStats {
     error: string | null;
     sentAt: string | null;
   }>;
+}
+
+interface GroupSummary {
+  id: string;
+  name: string;
+  color: string;
+  contactCount: number;
+  formName?: string | null;
 }
 
 const MERGE_TAGS = [
@@ -177,6 +188,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const { data: campaign, loading, error } = useFetch<CampaignDetail>(campaignUrl);
   const { data: senders } = useFetch<Sender[]>("/api/senders");
   const { data: statsOverview } = useFetch<{ activeContacts: number }>("/api/stats");
+  const { data: groupsData } = useFetch<GroupSummary[]>("/api/groups");
+  const groups = groupsData || [];
 
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
@@ -184,6 +197,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const [content, setContent] = useState("");
   const [contentType, setContentType] = useState<string>("html");
   const [senderId, setSenderId] = useState("");
+  // Sentinel meaning "all active contacts" (targetGroupId = null).
+  const [targetGroupId, setTargetGroupId] = useState<string>("__all__");
   const [hydrated, setHydrated] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -202,6 +217,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setContent(campaign.content || "");
       const ct = campaign.contentType === "html" ? "html" : "markdown";
       setContentType(ct);
+      setTargetGroupId(campaign.targetGroupId || "__all__");
       // Default to the matching editor view for the loaded content type.
       setMode(ct === "html" ? "visual" : "markdown");
     } else if (isNew) {
@@ -212,6 +228,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setContentType("html");
       setMode("visual");
       setSenderId("");
+      setTargetGroupId("__all__");
     }
     setHydrated(true);
   }, [campaign, isNew]);
@@ -328,6 +345,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         contentType,
         preheader: preheader.trim() || null,
         senderId,
+        targetGroupId:
+          targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
       };
       if (isNew) {
         const created = await apiFetch<CampaignDetail>("/api/campaigns", {
@@ -413,12 +432,25 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const isSent = liveStatus === "sent";
   const showStatsPanel = !isNew && (isSending || isSent) && !!stats;
 
+  // The selected target group, if any (null means "all active contacts").
+  const targetGroupSelected =
+    targetGroupId && targetGroupId !== "__all__"
+      ? groups.find((g) => g.id === targetGroupId) || null
+      : null;
+
+  // Disable Send if there's nobody to send to. When a group is selected,
+  // we rely on its contactCount; otherwise we use the all-active count.
+  const recipientCount = targetGroupSelected
+    ? targetGroupSelected.contactCount
+    : activeContacts;
+  const noRecipients = recipientCount === 0;
+
   const sendDisabled =
     isNew ||
     !senderId ||
     !content.trim() ||
     !subject.trim() ||
-    activeContacts === 0 ||
+    noRecipients ||
     isSending ||
     isSent;
 
@@ -464,17 +496,23 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       )}
 
       {/* No recipients warning */}
-      {activeContacts === 0 && hydrated && (
+      {noRecipients && hydrated && (
         <Alert>
           <MailWarning />
-          <AlertTitle>No active contacts</AlertTitle>
+          <AlertTitle>
+            {targetGroupSelected
+              ? `No contacts in ${targetGroupSelected.name}`
+              : "No active contacts"}
+          </AlertTitle>
           <AlertDescription>
-            You have no active contacts to send to.{" "}
+            {targetGroupSelected
+              ? `This group has no contacts to send to yet. `
+              : "You have no active contacts to send to. "}
             <button
               className="underline font-medium"
               onClick={() => setSection("contacts")}
             >
-              Add contacts
+              {targetGroupSelected ? "Manage group" : "Add contacts"}
             </button>
             .
           </AlertDescription>
@@ -544,6 +582,52 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="campaign-recipients" className="text-xs uppercase tracking-wide text-muted-foreground">
+            Recipients
+          </Label>
+          <Select
+            value={targetGroupId}
+            onValueChange={setTargetGroupId}
+            disabled={!canEdit}
+          >
+            <SelectTrigger id="campaign-recipients" className="w-full">
+              <SelectValue placeholder="All active contacts" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">
+                All active contacts{activeContacts > 0 ? ` (${activeContacts})` : ""}
+              </SelectItem>
+              {groups.length > 0 && (
+                <>
+                  <SelectGroup>
+                    <SelectLabel>Groups</SelectLabel>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        <span className="inline-flex items-center gap-2">
+                          <span
+                            className="size-2 rounded-full"
+                            style={{ backgroundColor: g.color }}
+                            aria-hidden
+                          />
+                          {g.name}
+                          {g.contactCount > 0 && (
+                            <span className="text-muted-foreground">
+                              (~{g.contactCount})
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </>
+              )}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            Restrict the broadcast to a contact group, or send to every active contact.
+          </p>
         </div>
       </div>
 
@@ -679,7 +763,27 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       {/* Footer actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-6">
         <div className="text-sm text-muted-foreground">
-          Will send to <span className="font-medium text-foreground">{activeContacts}</span> active contacts.
+          {targetGroupSelected ? (
+            <>
+              Will send to{" "}
+              <span className="font-medium text-foreground">
+                ~{targetGroupSelected.contactCount}
+              </span>{" "}
+              contacts in{" "}
+              <span className="font-medium text-foreground">
+                {targetGroupSelected.name}
+              </span>
+              .
+            </>
+          ) : (
+            <>
+              Will send to{" "}
+              <span className="font-medium text-foreground">
+                {activeContacts}
+              </span>{" "}
+              active contacts.
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -714,10 +818,15 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             </Button>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Send to {activeContacts} recipients now?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {targetGroupSelected
+                    ? `Send to ~${targetGroupSelected.contactCount} contacts in ${targetGroupSelected.name} now?`
+                    : `Send to ${activeContacts} recipients now?`}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will send the email from your Gmail account to every active
-                  contact. This action cannot be undone.
+                  {targetGroupSelected
+                    ? `This will send the email from your Gmail account to every contact in ${targetGroupSelected.name}. This action cannot be undone.`
+                    : "This will send the email from your Gmail account to every active contact. This action cannot be undone."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

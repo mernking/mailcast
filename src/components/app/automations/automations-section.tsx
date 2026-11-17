@@ -14,6 +14,8 @@ import {
   Mail,
   MousePointerClick,
   UserPlus,
+  Tag,
+  FolderInput,
 } from "lucide-react";
 import { useFetch, apiFetch, fmtDate } from "../use-api";
 import { SectionHeading } from "../section-heading";
@@ -35,10 +37,17 @@ import {
 import { WorkflowBuilder } from "./workflow-builder";
 import { EnrollDialog } from "./enroll-dialog";
 
+type WorkflowTrigger =
+  | "form_submit"
+  | "contact_added"
+  | "contact_tagged"
+  | "contact_added_to_group"
+  | "manual";
+
 interface WorkflowListItem {
   id: string;
   name: string;
-  trigger: "form_submit" | "contact_added" | "manual";
+  trigger: WorkflowTrigger;
   triggerConfig: Record<string, unknown>;
   enabled: boolean;
   enrolledCount: number;
@@ -49,11 +58,13 @@ interface WorkflowListItem {
 }
 
 const TRIGGER_META: Record<
-  WorkflowListItem["trigger"],
+  WorkflowTrigger,
   { label: string; icon: typeof MousePointerClick }
 > = {
-  form_submit: { label: "Form submit", icon: MousePointerClick },
+  form_submit: { label: "Form submitted", icon: MousePointerClick },
   contact_added: { label: "New contact", icon: UserPlus },
+  contact_tagged: { label: "Contact tagged", icon: Tag },
+  contact_added_to_group: { label: "Added to group", icon: FolderInput },
   manual: { label: "Manual", icon: Users },
 };
 
@@ -198,7 +209,7 @@ function WorkflowCard({
   onEnroll: () => void;
   onDelete: () => void;
 }) {
-  const meta = TRIGGER_META[workflow.trigger];
+  const meta = TRIGGER_META[workflow.trigger] ?? TRIGGER_META.manual;
   const TriggerIcon = meta.icon;
   const activeCount = Math.max(
     0,

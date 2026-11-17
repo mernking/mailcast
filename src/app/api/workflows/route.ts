@@ -3,16 +3,32 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const VALID_TRIGGERS = new Set(["form_submit", "contact_added", "manual"]);
+const VALID_TRIGGERS = new Set([
+  "form_submit",
+  "contact_added",
+  "contact_tagged",
+  "contact_added_to_group",
+  "manual",
+]);
 
-function safeParseSteps(raw: string): unknown[] {
+interface FlowGraph {
+  nodes?: unknown[];
+  edges?: unknown[];
+}
+
+function safeParseGraph(raw: string): FlowGraph {
   try {
-    const parsed = JSON.parse(raw || "[]");
-    if (Array.isArray(parsed)) return parsed;
+    const parsed = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return {
+        nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+      };
+    }
   } catch {
     // ignore
   }
-  return [];
+  return { nodes: [], edges: [] };
 }
 
 function safeParseTriggerConfig(raw: string): Record<string, unknown> {
@@ -27,9 +43,7 @@ function safeParseTriggerConfig(raw: string): Record<string, unknown> {
   return {};
 }
 
-/**
- * List all workflows, newest first, with sender info + step count.
- */
+/** List all workflows, newest first, with sender info + node count. */
 export async function GET() {
   try {
     const workflows = await db.workflow.findMany({
@@ -40,7 +54,7 @@ export async function GET() {
     });
 
     const items = workflows.map((w) => {
-      const steps = safeParseSteps(w.steps);
+      const graph = safeParseGraph(w.steps);
       return {
         id: w.id,
         name: w.name,
@@ -49,7 +63,7 @@ export async function GET() {
         enabled: w.enabled,
         enrolledCount: w.enrolledCount,
         completedCount: w.completedCount,
-        stepCount: steps.length,
+        stepCount: graph.nodes?.length || 0,
         createdAt: w.createdAt,
         updatedAt: w.updatedAt,
         sender: w.sender
@@ -65,9 +79,7 @@ export async function GET() {
   }
 }
 
-/**
- * Create a new workflow.
- */
+/** Create a new workflow. `steps` is a graph { nodes, edges } (object or JSON string). */
 export async function POST(req: NextRequest) {
   try {
     let body: unknown;
@@ -107,30 +119,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sender not found" }, { status: 404 });
     }
 
-    // Normalize steps to a JSON string of an array.
-    let stepsJson = "[]";
+    // Normalize steps to a JSON string of a graph { nodes, edges }.
+    let stepsJson = JSON.stringify({ nodes: [], edges: [] });
     if (steps !== undefined) {
+      let graphObj: FlowGraph | null = null;
       if (typeof steps === "string") {
-        // Trust the caller-provided JSON string, but validate it parses.
         try {
           const parsed = JSON.parse(steps);
-          if (Array.isArray(parsed)) {
-            stepsJson = JSON.stringify(parsed);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            graphObj = parsed as FlowGraph;
           }
         } catch {
           return NextResponse.json(
-            { error: "steps must be a JSON-encoded array" },
+            { error: "steps must be a JSON-encoded graph object { nodes, edges }" },
             { status: 400 }
           );
         }
-      } else if (Array.isArray(steps)) {
-        stepsJson = JSON.stringify(steps);
-      } else {
+      } else if (steps && typeof steps === "object" && !Array.isArray(steps)) {
+        graphObj = steps as FlowGraph;
+      }
+      if (!graphObj) {
         return NextResponse.json(
-          { error: "steps must be an array or JSON string" },
+          { error: "steps must be a graph object { nodes, edges } or JSON string" },
           { status: 400 }
         );
       }
+      stepsJson = JSON.stringify({
+        nodes: Array.isArray(graphObj.nodes) ? graphObj.nodes : [],
+        edges: Array.isArray(graphObj.edges) ? graphObj.edges : [],
+      });
     }
 
     // Normalize triggerConfig.
@@ -175,7 +192,7 @@ export async function POST(req: NextRequest) {
         triggerConfig: safeParseTriggerConfig(workflow.triggerConfig),
         senderId: workflow.senderId,
         enabled: workflow.enabled,
-        steps: safeParseSteps(workflow.steps),
+        steps: safeParseGraph(workflow.steps),
         enrolledCount: workflow.enrolledCount,
         completedCount: workflow.completedCount,
         createdAt: workflow.createdAt,

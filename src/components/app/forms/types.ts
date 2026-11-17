@@ -1,4 +1,15 @@
-export type FieldType = "text" | "email" | "name" | "phone";
+export type FieldType = "text" | "email" | "name" | "phone" | "telegram";
+
+/**
+ * A short human-readable label for a field type, used in selects and labels.
+ */
+export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
+  text: "Text",
+  email: "Email",
+  name: "Name",
+  phone: "Phone",
+  telegram: "Telegram",
+};
 
 export interface FormField {
   name: string;
@@ -6,6 +17,12 @@ export interface FormField {
   type: FieldType;
   required: boolean;
   placeholder?: string;
+}
+
+/** Minimal group reference returned alongside a form that feeds a group. */
+export interface LinkedGroup {
+  id: string;
+  name: string;
 }
 
 export interface FormSummary {
@@ -17,6 +34,7 @@ export interface FormSummary {
   accentColor: string;
   backgroundColor: string;
   textColor: string;
+  linkedGroup: LinkedGroup | null;
   createdAt: string;
   submissionCount: number;
 }
@@ -32,6 +50,7 @@ export interface FormFull {
   accentColor: string;
   backgroundColor: string;
   textColor: string;
+  linkedGroup: LinkedGroup | null;
   createdAt: string;
   updatedAt: string;
   submissionCount: number;

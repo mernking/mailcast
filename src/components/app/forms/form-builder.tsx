@@ -11,12 +11,13 @@ import {
   Save,
   Code2,
   Eye,
+  Users,
+  Link as LinkIcon,
 } from "lucide-react";
 import { apiFetch, useFetch } from "../use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -38,9 +39,22 @@ import {
   type FieldType,
   type FormField,
   type FormFull,
+  type LinkedGroup,
+  FIELD_TYPE_LABELS,
   NEW_FORM_DEFAULTS,
   suggestName,
 } from "./types";
+
+interface GroupSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  color: string;
+  formId?: string | null;
+  formName?: string | null;
+  contactCount: number;
+  createdAt: string;
+}
 
 interface FormBuilderProps {
   /** "new" for create, a real id to edit, or null when closed. */
@@ -52,6 +66,11 @@ interface FormBuilderProps {
    */
   onSaved: (savedId: string, openEmbed: boolean) => void;
 }
+
+/** Sentinel sent to the API to mean "clear the current link". */
+const LINK_NONE = "__none__";
+/** Sentinel used in the Select UI for "auto-create a new group". */
+const LINK_CREATE = "__create__";
 
 function emptyField(): FormField {
   return {
@@ -71,6 +90,9 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
   const fetchUrl =
     open && !isNew && formId ? `/api/forms/${formId}` : null;
   const { data: loaded, loading } = useFetch<FormFull>(fetchUrl);
+  const { data: groupsData, refetch: refetchGroups } =
+    useFetch<GroupSummary[]>("/api/groups");
+  const groups = groupsData || [];
 
   const [name, setName] = useState("");
   const [fields, setFields] = useState<FormField[]>(NEW_FORM_DEFAULTS.fields);
@@ -85,6 +107,12 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
     NEW_FORM_DEFAULTS.backgroundColor
   );
   const [textColor, setTextColor] = useState(NEW_FORM_DEFAULTS.textColor);
+
+  // Group-link state. `linkMode` drives the Select; `linkedGroup` is what
+  // the server last told us is linked (used for the read-only display).
+  const [linkMode, setLinkMode] = useState<string>("none");
+  const [linkedGroup, setLinkedGroup] = useState<LinkedGroup | null>(null);
+
   const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -105,6 +133,8 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
       setAccentColor(NEW_FORM_DEFAULTS.accentColor);
       setBackgroundColor(NEW_FORM_DEFAULTS.backgroundColor);
       setTextColor(NEW_FORM_DEFAULTS.textColor);
+      setLinkedGroup(null);
+      setLinkMode("none");
       setHydrated(true);
       return;
     }
@@ -122,6 +152,8 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
       setAccentColor(loaded.accentColor);
       setBackgroundColor(loaded.backgroundColor);
       setTextColor(loaded.textColor);
+      setLinkedGroup(loaded.linkedGroup ?? null);
+      setLinkMode(loaded.linkedGroup ? loaded.linkedGroup.id : "none");
       setHydrated(true);
     }
   }, [open, isNew, loaded]);
@@ -172,17 +204,34 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
     });
   };
 
-  const buildPayload = () => ({
-    name: name.trim(),
-    fields,
-    buttonText: buttonText.trim(),
-    successMessage: successMessage.trim(),
-    redirectUrl: redirectUrl.trim() || null,
-    tagsToAdd,
-    accentColor,
-    backgroundColor,
-    textColor,
-  });
+  const buildPayload = () => {
+    const payload: Record<string, unknown> = {
+      name: name.trim(),
+      fields,
+      buttonText: buttonText.trim(),
+      successMessage: successMessage.trim(),
+      redirectUrl: redirectUrl.trim() || null,
+      tagsToAdd,
+      accentColor,
+      backgroundColor,
+      textColor,
+    };
+
+    // Translate the Select's link mode into API instructions.
+    if (linkMode === LINK_NONE) {
+      // Only send the clear instruction if there is currently a link to
+      // clear (avoids no-op PATCH errors when nothing else changed).
+      if (linkedGroup) payload.linkGroupId = LINK_NONE;
+    } else if (linkMode === LINK_CREATE) {
+      payload.createGroupForForm = true;
+    } else if (linkMode && linkMode !== "none") {
+      // Existing group id — only send if it differs from what's linked.
+      if (!linkedGroup || linkedGroup.id !== linkMode) {
+        payload.linkGroupId = linkMode;
+      }
+    }
+    return payload;
+  };
 
   const validate = (): string | null => {
     if (!name.trim()) return "Give your form a name.";
@@ -223,6 +272,10 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
       } else {
         throw new Error("No form to save");
       }
+      // Reflect the freshly-resolved link locally.
+      setLinkedGroup(saved.linkedGroup ?? null);
+      setLinkMode(saved.linkedGroup ? saved.linkedGroup.id : "none");
+      refetchGroups();
       onSaved(saved.id, openEmbed);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save form");
@@ -359,6 +412,85 @@ export function FormBuilder({ formId, onClose, onSaved }: FormBuilderProps) {
                         No fields yet. Add an email field to start.
                       </div>
                     )}
+                  </div>
+                </section>
+
+                <Separator />
+
+                {/* Recipient group */}
+                <section className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="size-3.5 text-muted-foreground" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Recipient group
+                    </h3>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="fb-group">Link a contact group</Label>
+                    <Select
+                      value={linkMode}
+                      onValueChange={(v) => setLinkMode(v)}
+                    >
+                      <SelectTrigger id="fb-group" className="w-full">
+                        <SelectValue placeholder="No group linked" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={LINK_NONE}>
+                          No group (submissions only add to your list)
+                        </SelectItem>
+                        <SelectItem value={LINK_CREATE}>
+                          Create a new group for this form
+                        </SelectItem>
+                        {groups.length > 0 && (
+                          <>
+                            <SelectItem value="divider-existing" disabled>
+                              — Existing groups —
+                            </SelectItem>
+                            {groups.map((g) => (
+                              <SelectItem
+                                key={g.id}
+                                value={g.id}
+                                disabled={!!g.formId && g.formId !== formId}
+                              >
+                                <span className="inline-flex items-center gap-2">
+                                  <span
+                                    className="size-2 rounded-full"
+                                    style={{ backgroundColor: g.color }}
+                                    aria-hidden
+                                  />
+                                  {g.name}
+                                  {g.contactCount > 0 && (
+                                    <span className="text-muted-foreground">
+                                      ({g.contactCount})
+                                    </span>
+                                  )}
+                                  {!!g.formId && g.formId !== formId && (
+                                    <span className="text-muted-foreground">
+                                      · linked to {g.formName || "another form"}
+                                    </span>
+                                  )}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {linkedGroup && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <LinkIcon className="size-3" />
+                        Currently linked to{" "}
+                        <span className="font-medium text-foreground">
+                          {linkedGroup.name}
+                        </span>
+                        . Submissions will be added there automatically.
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Submissions to this form are automatically added to the
+                      linked group. Pick an existing group, create one for this
+                      form, or leave it unlinked.
+                    </p>
                   </div>
                 </section>
 
@@ -505,10 +637,11 @@ function FieldRow({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="text">Text</SelectItem>
-              <SelectItem value="email">Email</SelectItem>
-              <SelectItem value="name">Name</SelectItem>
-              <SelectItem value="phone">Phone</SelectItem>
+              {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
+                <SelectItem key={t} value={t}>
+                  {FIELD_TYPE_LABELS[t]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

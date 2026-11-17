@@ -76,7 +76,10 @@ export async function POST(
   try {
     const { id } = await params;
 
-    const form = await db.form.findUnique({ where: { id } });
+    const form = await db.form.findUnique({
+      where: { id },
+      include: { group: { select: { id: true } } },
+    });
     if (!form) {
       return NextResponse.json(
         { ok: false, error: "Form not found" },
@@ -103,30 +106,45 @@ export async function POST(
       values.name || values.NAME || values.Name || values.full_name || "";
     const name = nameRaw.toString().trim() || null;
 
+    // Telegram username (collected via a "telegram" field type on the form).
+    const telegramRaw =
+      values.telegram ||
+      values.Telegram ||
+      values.telegram_username ||
+      values.handle ||
+      "";
+    const telegram = telegramRaw
+      ? telegramRaw.toString().trim().replace(/^@/, "")
+      : null;
+
     const data: Record<string, string> = {};
     for (const [k, v] of Object.entries(values)) {
       const lower = k.toLowerCase();
       if (lower === "email") continue;
       if (lower === "name" || k === "NAME" || k === "Name") continue;
       if (lower === "full_name") continue;
+      if (lower === "telegram" || lower === "telegram_username" || lower === "handle") continue;
       data[k] = v;
     }
     if (name && !("name" in data)) {
       // keep the name in data too so it shows up in submission exports
       data.name = name;
     }
+    if (telegram) data.telegram = telegram;
 
     const tagsToAdd = normalizeTags(form.tagsToAdd);
 
     // Upsert contact (email is not @unique, so use findFirst like contacts API).
     const existing = await db.contact.findFirst({ where: { email } });
     let contactId: string;
+    let isNewContact = false;
     if (existing) {
       const updated = await db.contact.update({
         where: { id: existing.id },
         data: {
           name: name ?? existing.name,
           tags: mergeTags(existing.tags, tagsToAdd),
+          telegram: telegram ?? existing.telegram,
           active: true,
         },
         select: { id: true },
@@ -140,10 +158,12 @@ export async function POST(
           tags: tagsToAdd.join(","),
           source: "form",
           active: true,
+          telegram,
         },
         select: { id: true },
       });
       contactId = created.id;
+      isNewContact = true;
     }
 
     await db.formSubmission.create({
@@ -156,11 +176,31 @@ export async function POST(
       },
     });
 
-    // Trigger automations: enroll into any form_submit workflows matching
-    // this form (or with no formId configured), then immediately process
-    // due steps so a no-delay welcome email sends right away.
+    // Add the contact to the form's linked group (if any).
+    let addedToGroup = false;
+    if (form.group?.id) {
+      try {
+        await db.contactGroupAssignment.upsert({
+          where: { contactId_groupId: { contactId, groupId: form.group.id } },
+          create: { contactId, groupId: form.group.id },
+          update: {},
+        });
+        addedToGroup = true;
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    // Trigger automations, then immediately process due steps so a no-delay
+    // welcome email sends right away. Failures here never break the submit.
     try {
+      if (isNewContact) {
+        await enrollContact(contactId, "contact_added", {});
+      }
       await enrollContact(contactId, "form_submit", { formId: form.id });
+      if (addedToGroup && form.group?.id) {
+        await enrollContact(contactId, "contact_added_to_group", { groupId: form.group.id });
+      }
       await processDueEnrollments();
     } catch {
       // Automations failing should never break the submit response.

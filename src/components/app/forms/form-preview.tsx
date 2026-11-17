@@ -118,16 +118,56 @@ export function FormPreview({
             {f.label}
             {f.required ? " *" : ""}
           </label>
-          <input
-            type={f.type === "email" ? "email" : "text"}
-            name={f.name}
-            placeholder={f.placeholder || ""}
-            required={f.required}
-            style={inputStyle}
-            tabIndex={-1}
-            readOnly
-            onFocus={(e) => e.currentTarget.blur()}
-          />
+          {f.type === "telegram" ? (
+            <div
+              style={{
+                ...inputStyle,
+                display: "flex",
+                alignItems: "center",
+                padding: 0,
+                border: `1px solid ${accentColor}33`,
+              }}
+            >
+              <span
+                style={{
+                  padding: "9px 0 9px 11px",
+                  color: textColor,
+                  opacity: 0.6,
+                  fontSize: "14px",
+                  userSelect: "none",
+                }}
+                aria-hidden
+              >
+                @
+              </span>
+              <input
+                type="text"
+                name={f.name}
+                placeholder={f.placeholder || "username"}
+                required={f.required}
+                style={{
+                  ...inputStyle,
+                  border: "none",
+                  padding: "9px 11px",
+                  flex: 1,
+                }}
+                tabIndex={-1}
+                readOnly
+                onFocus={(e) => e.currentTarget.blur()}
+              />
+            </div>
+          ) : (
+            <input
+              type={f.type === "email" ? "email" : "text"}
+              name={f.name}
+              placeholder={f.placeholder || ""}
+              required={f.required}
+              style={inputStyle}
+              tabIndex={-1}
+              readOnly
+              onFocus={(e) => e.currentTarget.blur()}
+            />
+          )}
         </div>
       ))}
       <button type="button" style={buttonStyle} tabIndex={-1} onClick={(e) => e.preventDefault()}>

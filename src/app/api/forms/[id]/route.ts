@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 interface FormField {
   name: string;
   label: string;
-  type: "text" | "email" | "name" | "phone";
+  type: "text" | "email" | "name" | "phone" | "telegram";
   required: boolean;
   placeholder?: string;
 }
@@ -21,7 +21,7 @@ function parseFields(raw: string): FormField[] {
   return [];
 }
 
-function toFullForm(f: {
+interface FormWithIncludes {
   id: string;
   name: string;
   fields: string;
@@ -35,7 +35,10 @@ function toFullForm(f: {
   createdAt: Date;
   updatedAt: Date;
   _count: { submissions: number };
-}) {
+  group: { id: string; name: string } | null;
+}
+
+function toFullForm(f: FormWithIncludes) {
   return {
     id: f.id,
     name: f.name,
@@ -47,10 +50,85 @@ function toFullForm(f: {
     accentColor: f.accentColor,
     backgroundColor: f.backgroundColor,
     textColor: f.textColor,
+    linkedGroup: f.group ? { id: f.group.id, name: f.group.name } : null,
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
     submissionCount: f._count.submissions,
   };
+}
+
+/**
+ * Same linking logic as the POST route. The group owns the link via its
+ * unique `formId`. Modes:
+ *   - linkGroupId === "__none__": clear any currently-linked group.
+ *   - linkGroupId === "<id>": relink to that group.
+ *   - createGroupForForm === true: create a new group named after the form.
+ * If neither is supplied, the current link is preserved.
+ */
+async function applyGroupLink(
+  formId: string,
+  opts: { linkGroupId?: string | null; createGroupForForm?: boolean },
+  formName: string
+): Promise<{ id: string; name: string } | null> {
+  const linkGroupIdRaw =
+    typeof opts.linkGroupId === "string" ? opts.linkGroupId.trim() : "";
+  const create = opts.createGroupForForm === true;
+
+  if (linkGroupIdRaw === "__none__") {
+    await db.contactGroup.updateMany({
+      where: { formId },
+      data: { formId: null },
+    });
+    return null;
+  }
+
+  let targetGroupId = linkGroupIdRaw;
+  if (create && !targetGroupId) {
+    const created = await db.contactGroup.create({
+      data: { name: formName || "Form group", formId },
+      select: { id: true, name: true },
+    });
+    return { id: created.id, name: created.name };
+  }
+
+  if (!targetGroupId) {
+    const existing = await db.contactGroup.findFirst({
+      where: { formId },
+      select: { id: true, name: true },
+    });
+    return existing ? { id: existing.id, name: existing.name } : null;
+  }
+
+  const target = await db.contactGroup.findUnique({
+    where: { id: targetGroupId },
+    select: { id: true, name: true, formId: true },
+  });
+  if (!target) return null;
+
+  if (target.formId === formId) {
+    return { id: target.id, name: target.name };
+  }
+
+  await db.contactGroup.updateMany({
+    where: { formId },
+    data: { formId: null },
+  });
+  await db.contactGroup.update({
+    where: { id: target.id },
+    data: { formId },
+  });
+
+  return { id: target.id, name: target.name };
+}
+
+async function currentLinkedGroup(
+  formId: string
+): Promise<{ id: string; name: string } | null> {
+  const g = await db.contactGroup.findFirst({
+    where: { formId },
+    select: { id: true, name: true },
+  });
+  return g ? { id: g.id, name: g.name } : null;
 }
 
 export async function GET(
@@ -61,7 +139,10 @@ export async function GET(
     const { id } = await params;
     const form = await db.form.findUnique({
       where: { id },
-      include: { _count: { select: { submissions: true } } },
+      include: {
+        _count: { select: { submissions: true } },
+        group: { select: { id: true, name: true } },
+      },
     });
     if (!form) {
       return NextResponse.json({ error: "Form not found" }, { status: 404 });
@@ -101,6 +182,8 @@ export async function PATCH(
       accentColor?: string;
       backgroundColor?: string;
       textColor?: string;
+      linkGroupId?: string | null;
+      createGroupForForm?: boolean;
     };
 
     const data: Record<string, unknown> = {};
@@ -135,15 +218,42 @@ export async function PATCH(
       data.textColor = patch.textColor;
     }
 
-    if (Object.keys(data).length === 0) {
-      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    const hasLinkInstruction =
+      patch.linkGroupId !== undefined || patch.createGroupForForm === true;
+
+    if (Object.keys(data).length === 0 && !hasLinkInstruction) {
+      return NextResponse.json(
+        { error: "No fields to update" },
+        { status: 400 }
+      );
     }
 
-    const updated = await db.form.update({
+    if (Object.keys(data).length > 0) {
+      await db.form.update({ where: { id }, data });
+    }
+
+    // Resolve the group link instruction (if any).
+    if (hasLinkInstruction) {
+      await applyGroupLink(
+        id,
+        { linkGroupId: patch.linkGroupId, createGroupForForm: patch.createGroupForForm },
+        typeof data.name === "string" ? data.name : existing.name
+      ).catch(() => null);
+    }
+
+    const updated = await db.form.findUnique({
       where: { id },
-      data,
-      include: { _count: { select: { submissions: true } } },
+      include: {
+        _count: { select: { submissions: true } },
+        group: { select: { id: true, name: true } },
+      },
     });
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Form not found after update" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json(toFullForm(updated));
   } catch (err) {

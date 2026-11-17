@@ -14,11 +14,13 @@ import { FormsSection } from "./forms/forms-section";
 import { AutomationsSection } from "./automations/automations-section";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function Dashboard() {
   const section = useAppStore((s) => s.section);
   const editingCampaignId = useAppStore((s) => s.editingCampaignId);
   const openCampaignEditor = useAppStore((s) => s.openCampaignEditor);
+  const collapsed = useAppStore((s) => s.sidebarCollapsed);
 
   // The "Add Gmail sender" dialog can be opened from the topbar action button
   // or from an empty-state inside the SenderList.
@@ -67,8 +69,13 @@ export function Dashboard() {
 
   return (
     <div className="flex min-h-screen w-full bg-background">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:block w-60 shrink-0 sticky top-0 h-screen">
+      {/* Desktop sidebar (collapsible) */}
+      <aside
+        className={cn(
+          "hidden md:block shrink-0 sticky top-0 h-screen transition-[width] duration-200",
+          collapsed ? "w-16" : "w-60"
+        )}
+      >
         <Sidebar />
       </aside>
 

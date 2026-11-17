@@ -52,9 +52,13 @@ export async function POST(
   }
 
   try {
-    // Count active recipients.
+    // Count active recipients. If the campaign targets a group, restrict to
+    // contacts assigned to that group; otherwise all active contacts.
+    const where = campaign.targetGroupId
+      ? { active: true, groupAssignments: { some: { groupId: campaign.targetGroupId } } }
+      : { active: true };
     const activeContacts = await db.contact.findMany({
-      where: { active: true },
+      where,
       select: { id: true, email: true, name: true },
     });
 
