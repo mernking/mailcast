@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A Gmail sender account used to broadcast newsletters.
+model SenderAccount {
+  id            String   @id @default(cuid())
+  /// Email address of the Gmail account, e.g. me@gmail.com
+  email         String
+  /// Display name shown to recipients in the From header
+  fromName      String
+  /// AES-256-GCM encrypted Gmail app password (hex:iv:ciphertext:tag)
+  passwordEnc   String
+  /// Whether this account has been verified to work
+  verified      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  campaigns Campaign[]
+}
+
+/// A subscriber / recipient that can receive broadcasts.
+model Contact {
+  id        String   @id @default(cuid())
+  email     String
+  name      String?
+  tags      String   @default("") // comma separated
+  source    String   @default("manual") // manual | import
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipients CampaignRecipient[]
+
+  @@index([email])
+  @@index([active])
+}
+
+/// A newsletter broadcast campaign.
+model Campaign {
+  id          String   @id @default(cuid())
+  title       String
+  subject     String
+  /// Markdown body of the newsletter
+  content     String
+  /// Short preview text shown in inbox previews
+  preheader   String?
+  status      String   @default("draft") // draft | sending | sent | failed
+  senderId    String
+  sender      SenderAccount @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  totalRecip  Int      @default(0)
+  sentCount   Int      @default(0)
+  failedCount Int      @default(0)
+  openedCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sentAt      DateTime?
+
+  recipients CampaignRecipient[]
+
+  @@index([status])
+}
+
+/// Per-recipient delivery record for a campaign.
+model CampaignRecipient {
+  id         String   @id @default(cuid())
+  campaignId String
+  contactId  String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status     String   @default("pending") // pending | sent | failed
+  error      String?
+  sentAt     DateTime?
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId])
+}
