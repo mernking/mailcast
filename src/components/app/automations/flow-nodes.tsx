@@ -76,29 +76,29 @@ function NodeShell({ type, selected, children }: NodeShellProps) {
 // ---------------------------------------------------------------------------
 
 const TARGET_HANDLE_STYLE: React.CSSProperties = {
-  width: 10,
-  height: 10,
+  width: 12,
+  height: 12,
   background: "var(--muted-foreground)",
   border: "2px solid var(--card)",
 };
 
 const SOURCE_HANDLE_STYLE: React.CSSProperties = {
-  width: 10,
-  height: 10,
+  width: 12,
+  height: 12,
   background: "var(--foreground)",
   border: "2px solid var(--card)",
 };
 
 const TRUE_HANDLE_STYLE: React.CSSProperties = {
-  width: 10,
-  height: 10,
+  width: 12,
+  height: 12,
   background: "oklch(0.65 0.2 145)", // chart-1 green
   border: "2px solid var(--card)",
 };
 
 const FALSE_HANDLE_STYLE: React.CSSProperties = {
-  width: 10,
-  height: 10,
+  width: 12,
+  height: 12,
   background: "var(--muted-foreground)",
   border: "2px solid var(--card)",
 };

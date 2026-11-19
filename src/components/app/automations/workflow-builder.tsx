@@ -214,7 +214,7 @@ function BuilderInner({
     setHydrated(true);
     // Fit view once nodes have been measured.
     requestAnimationFrame(() => {
-      reactFlow.fitView({ padding: 0.2, duration: 200 });
+      reactFlow.fitView({ padding: 0.4, duration: 200 });
     });
   }, [wfData, isNew, setNodes, setEdges, reactFlow]);
 
@@ -264,17 +264,19 @@ function BuilderInner({
 
   const addNode = useCallback(
     (type: NodeType) => {
-      // Place the new node below the bottom-most node, or at origin.
       const id = genId("node");
+
+      // Stack the new node below the bottom-most node (top-down flow), at the
+      // average x so a linear chain reads cleanly. The fitView call below keeps
+      // everything on-screen so handles stay reachable.
       const ys = nodes.map((n) => n.position?.y ?? 0);
       const xs = nodes.map((n) => n.position?.x ?? 0);
       const baseY = ys.length ? Math.max(...ys) : 0;
       const baseX = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
-      const offset = 160;
       const newNode: FlowNode = {
         id,
         type,
-        position: { x: baseX + (Math.random() * 80 - 40), y: baseY + offset },
+        position: { x: Math.round(baseX), y: baseY + 170 },
         data: defaultDataFor(type),
         selected: true,
       };
@@ -282,8 +284,17 @@ function BuilderInner({
         [...prev.map((n) => ({ ...n, selected: false })), newNode] as FlowNode[],
       );
       setSelectedId(id);
+
+      // Re-fit the view so the new node (and every existing handle) stays
+      // on-screen and draggable. Without this, stacked nodes fall below the
+      // canvas and their handles become unreachable — which breaks connections.
+      // A short setTimeout lets React commit + lay out the new node before
+      // fitView measures it (rAF could race with the commit).
+      setTimeout(() => {
+        reactFlow.fitView({ duration: 250 });
+      }, 60);
     },
-    [nodes, setNodes],
+    [nodes, setNodes, reactFlow],
   );
 
   const deleteNode = useCallback(
@@ -430,7 +441,7 @@ function BuilderInner({
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] gap-3">
+    <div className="flex flex-col h-[calc(100vh-7rem)] gap-3">
       <TopBar
         name={name}
         onName={setName}
@@ -447,7 +458,7 @@ function BuilderInner({
 
       <div className="flex flex-1 flex-col-reverse md:flex-row gap-3 min-h-0">
         {/* Canvas */}
-        <div className="flex-1 min-h-[400px] rounded-xl border bg-card overflow-hidden relative">
+        <div className="flex-1 min-h-[480px] rounded-xl border bg-card overflow-hidden relative">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -458,7 +469,7 @@ function BuilderInner({
             onPaneClick={onPaneClick}
             nodeTypes={flowNodeTypes as unknown as NodeTypes}
             fitView
-            fitViewOptions={{ padding: 0.25 }}
+            fitViewOptions={{ padding: 0.4 }}
             minZoom={0.4}
             maxZoom={1.6}
             proOptions={{ hideAttribution: true }}
