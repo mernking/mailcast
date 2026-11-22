@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sendCampaignEmail } from "@/lib/gmail";
+import { countRecipientStatuses } from "@/lib/send-result";
 import { getPublicBaseUrl } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +47,8 @@ export async function POST(
       { status: 409 }
     );
   }
-  if (campaign.status === "sent") {
+  // A partially failed broadcast may be retried; a fully successful one may not.
+  if (campaign.status === "sent" && campaign.failedCount === 0) {
     return NextResponse.json(
       { error: "Campaign has already been sent." },
       { status: 409 }
@@ -110,9 +112,9 @@ export async function POST(
       });
     }
 
-    // Re-load pending recipients with their contact info for sending.
+    // Retry both never-sent and previously failed recipients.
     const pending = await db.campaignRecipient.findMany({
-      where: { campaignId: id, status: "pending" },
+      where: { campaignId: id, status: { in: ["pending", "failed"] } },
       include: { contact: { select: { email: true, name: true } } },
     });
 
@@ -121,9 +123,6 @@ export async function POST(
       fromName: campaign.sender.fromName,
       passwordEnc: campaign.sender.passwordEnc,
     };
-
-    let sentCount = 0;
-    let failedCount = 0;
 
     for (const recip of pending) {
       if (!recip.contact) continue;
@@ -145,7 +144,6 @@ export async function POST(
       });
 
       if (result.ok) {
-        sentCount++;
         console.log(`[send] campaign=${id} recipient=${recip.contact.email} accepted=${result.accepted.join(",")}`);
         try {
           await db.campaignRecipient.update({
@@ -156,7 +154,6 @@ export async function POST(
           // Best-effort — counts are tracked in memory.
         }
       } else {
-        failedCount++;
         console.warn(`[send] campaign=${id} recipient=${recip.contact.email} rejected: ${result.error || "unknown error"}`);
         try {
           await db.campaignRecipient.update({
@@ -172,29 +169,37 @@ export async function POST(
       }
     }
 
-    const allFailed = sentCount === 0 && failedCount > 0;
+    // Derive final counts from all recipient rows so retries report the
+    // cumulative result rather than only the latest attempt.
+    const allRows = await db.campaignRecipient.findMany({
+      where: { campaignId: id },
+      select: { status: true },
+    });
+    const { sentCount: deliveredCount, failedCount: rejectedCount } =
+      countRecipientStatuses(allRows);
+    const allFailed = deliveredCount === 0 && rejectedCount > 0;
     await db.campaign.update({
       where: { id },
       data: {
         status: allFailed ? "failed" : "sent",
         sentAt: new Date(),
-        sentCount,
-        failedCount,
+        sentCount: deliveredCount,
+        failedCount: rejectedCount,
       },
     });
 
     const warning =
-      failedCount > 0
-        ? `${failedCount} recipient(s) were rejected — check "Recent deliveries" for details.`
+      rejectedCount > 0
+        ? `${rejectedCount} recipient(s) were rejected — check "Recent deliveries" for details.`
         : totalRecip > 400
-          ? `Sent ${sentCount}/${totalRecip} (large broadcast — verify Gmail daily limits).`
+          ? `Sent ${deliveredCount}/${totalRecip} (large broadcast — verify Gmail daily limits).`
           : undefined;
 
     return NextResponse.json({
-      ok: failedCount === 0,
+      ok: rejectedCount === 0,
       totalRecip,
-      sentCount,
-      failedCount,
+      sentCount: deliveredCount,
+      failedCount: rejectedCount,
       warning,
     });
   } catch (err) {

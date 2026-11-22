@@ -237,6 +237,15 @@ model TrackingToken {
 }
 
 /// A recorded open or click event for one campaign recipient.
+/// One row per recipient/campaign open. Composite key makes dedupe atomic.
+model TrackingOpen {
+  campaignId  String
+  recipientId String
+  createdAt   DateTime @default(now())
+
+  @@id([campaignId, recipientId])
+}
+
 model TrackingEvent {
   id          String   @id @default(cuid())
   tokenId     String

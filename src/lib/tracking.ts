@@ -19,6 +19,19 @@ export function hasOpenEvent(
   );
 }
 
+/** Decode the HTML entities email clients put into href attributes. */
+export function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_match, code: string) =>
+      String.fromCharCode(Number(code))
+    );
+}
+
 /** Append UTM parameters to a click destination without dropping its query. */
 export function withUtm(url: string, campaignId: string): string {
   try {

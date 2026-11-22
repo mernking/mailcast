@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasOpenEvent, withUtm } from "../../src/lib/tracking.ts";
+import {
+  hasOpenEvent,
+  withUtm,
+  decodeHtmlEntities,
+} from "../../src/lib/tracking.ts";
 
 const event = (recipientId: string, campaignId: string, kind: string) => ({
   recipientId,
@@ -28,6 +32,14 @@ test("an open for another campaign or a click does not dedupe", () => {
 
 test("no events means no prior open", () => {
   assert.equal(hasOpenEvent([], "r1", "c1"), false);
+});
+
+test("HTML entities in a link are decoded before redirect", () => {
+  assert.equal(
+    decodeHtmlEntities("https://example.com/a?x=1&amp;y=2"),
+    "https://example.com/a?x=1&y=2"
+  );
+  assert.equal(decodeHtmlEntities("https://example.com/?a=&#39;b&#39;"), "https://example.com/?a='b'");
 });
 
 test("UTM parameters are added without losing existing query values", () => {

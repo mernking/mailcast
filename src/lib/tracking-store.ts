@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
 import { buildTrackedHtml } from "./tracking-html";
-import { withUtm } from "./tracking";
+import { decodeHtmlEntities, withUtm } from "./tracking";
 
 export interface TrackingContext {
   baseUrl: string;
@@ -40,9 +40,10 @@ export async function prepareTrackedHtml(
       ),
     ];
     const tokens = new Map<string, string>();
-    for (const url of urls) {
+    for (const rawUrl of urls) {
+      const url = decodeHtmlEntities(rawUrl);
       const token = randomUUID();
-      tokens.set(url, token);
+      tokens.set(rawUrl, token);
       await db.trackingToken.create({
         data: {
           token,

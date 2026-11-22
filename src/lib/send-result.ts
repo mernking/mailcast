@@ -29,6 +29,15 @@ function toAddresses(value: unknown): string[] {
     .filter(Boolean);
 }
 
+export function countRecipientStatuses(
+  rows: { status: string }[]
+): { sentCount: number; failedCount: number } {
+  return {
+    sentCount: rows.filter((row) => row.status === "sent").length,
+    failedCount: rows.filter((row) => row.status === "failed").length,
+  };
+}
+
 export function classifySendResult(info: SmtpInfo): SendClassification {
   const accepted = toAddresses(info.accepted);
   const rejected = toAddresses(info.rejected);

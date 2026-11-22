@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { hasOpenEvent } from "@/lib/tracking";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +25,26 @@ export async function GET(
   const userAgent = req.headers.get("user-agent") || null;
 
   if (record.kind === "open") {
-    const existing = await db.trackingEvent.findMany({
-      where: {
-        campaignId: record.campaignId,
-        recipientId: record.recipientId,
-        kind: "open",
-      },
-      select: { recipientId: true, campaignId: true, kind: true },
-    });
-    if (!hasOpenEvent(existing, record.recipientId, record.campaignId)) {
+    // The composite primary key on TrackingOpen makes this check atomic even
+    // when several pixel requests arrive at once.
+    let firstOpen = false;
+    try {
+      await db.trackingOpen.create({
+        data: {
+          campaignId: record.campaignId,
+          recipientId: record.recipientId,
+        },
+      });
+      firstOpen = true;
+    } catch (err) {
+      const code =
+        err instanceof Error && "code" in err
+          ? (err as { code?: string }).code
+          : undefined;
+      if (code !== "P2002") throw err;
+    }
+
+    if (firstOpen) {
       await db.$transaction([
         db.trackingEvent.create({
           data: {
