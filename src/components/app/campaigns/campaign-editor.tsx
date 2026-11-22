@@ -14,6 +14,7 @@ import {
   PencilLine,
   Code,
   Type,
+  LayoutDashboard,
 } from "lucide-react";
 
 import { useFetch, apiFetch, fmtDateTime, truncate } from "../use-api";
@@ -59,6 +60,7 @@ import { cn } from "@/lib/utils";
 import { markdownToHtml } from "@/lib/markdown";
 import { Switch } from "@/components/ui/switch";
 import { RichTextEditor } from "./rich-text-editor";
+import { EmailBuilder } from "@/components/app/templates/email-builder";
 
 interface Sender {
   id: string;
@@ -127,7 +129,7 @@ const MERGE_TAGS = [
   { label: "{{email}}", value: "{{email}}" },
 ];
 
-type EditorMode = "visual" | "html" | "markdown" | "preview";
+type EditorMode = "visual" | "html" | "markdown" | "preview" | "design";
 
 /**
  * Best-effort conversion of an HTML body string to a markdown approximation.
@@ -723,6 +725,9 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               </p>
             </div>
             <TabsList className="flex-wrap h-auto">
+              <TabsTrigger value="design" disabled={!canEdit} className="gap-1.5">
+                <LayoutDashboard className="size-3.5" /> Design
+              </TabsTrigger>
               <TabsTrigger value="visual" disabled={!canEdit} className="gap-1.5">
                 <PencilLine className="size-3.5" /> Visual
               </TabsTrigger>
@@ -737,6 +742,29 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               </TabsTrigger>
             </TabsList>
           </div>
+
+          {/* GrapesJS/MJML Design */}
+          <TabsContent value="design" className="mt-4">
+            <div className="flex flex-col gap-3">
+              {canEdit && (
+                <Alert className="border-border/50 bg-muted/30">
+                  <AlertTitle>Drag & Drop Email Builder</AlertTitle>
+                  <AlertDescription>
+                    Build responsive emails visually with GrapesJS & MJML. Content syncs to HTML mode automatically.
+                    Use merge tags (\u007B\u007Bname\u007D\u007D, \u007B\u007Bemail\u007D\u007D) in text blocks for personalization.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <EmailBuilder
+                templateId={campaign?.id ? undefined : undefined}
+                onHtml={(html) => {
+                  setContent(html);
+                  setContentType("html");
+                  setMode("html");
+                }}
+              />
+            </div>
+          </TabsContent>
 
           {/* Visual WYSIWYG */}
           <TabsContent value="visual" className="mt-4">
