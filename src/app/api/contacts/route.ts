@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { reconcileGroupMemberships } from "@/lib/group-memberships";
 
 export const dynamic = "force-dynamic";
 
@@ -71,14 +72,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { email, name, tags } = (body ?? {}) as {
+    const { email, name, tags, groupIds } = (body ?? {}) as {
       email?: string;
       name?: string | null;
       tags?: string | string[];
+      groupIds?: string[];
     };
 
     if (!email || !EMAIL_RE.test(email)) {
       return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
+    }
+
+    const selectedGroupIds = Array.isArray(groupIds)
+      ? [...new Set(groupIds.filter((id): id is string => typeof id === "string" && !!id))]
+      : null;
+    if (selectedGroupIds) {
+      const found = await db.contactGroup.findMany({
+        where: { id: { in: selectedGroupIds } },
+        select: { id: true },
+      });
+      if (found.length !== selectedGroupIds.length) {
+        return NextResponse.json({ error: "One or more groups do not exist" }, { status: 400 });
+      }
     }
 
     const cleanEmail = email.trim().toLowerCase();
@@ -109,6 +124,27 @@ export async function POST(req: NextRequest) {
           active: true,
         },
       });
+    }
+
+    if (selectedGroupIds) {
+      const current = await db.contactGroupAssignment.findMany({
+        where: { contactId: contact.id },
+        select: { groupId: true },
+      });
+      const { toAdd, toRemove } = reconcileGroupMemberships(
+        current.map((row) => row.groupId),
+        selectedGroupIds
+      );
+      await db.$transaction([
+        ...toAdd.map((groupId) =>
+          db.contactGroupAssignment.create({
+            data: { contactId: contact.id, groupId },
+          })
+        ),
+        db.contactGroupAssignment.deleteMany({
+          where: { contactId: contact.id, groupId: { in: toRemove } },
+        }),
+      ]);
     }
 
     return NextResponse.json(contact, { status: 201 });
