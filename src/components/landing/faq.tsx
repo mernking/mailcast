@@ -23,11 +23,11 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "Can I import my existing list?",
-    a: "Yes. Paste emails directly, or paste a CSV with name and address columns. We dedupe against your existing contacts and validate every address before it is added.",
+    a: "Yes. Upload a CSV file, map each column to a contact field, then import. We dedupe against your existing contacts and validate every address before it is added.",
   },
   {
     q: "Does it track opens and clicks?",
-    a: "MailCast tracks per-recipient delivery status (sent, delivered, failed) today. Open and click tracking raise privacy concerns, so they are optional and off by default — you can enable them per campaign.",
+    a: "Yes. Open and click tracking are on by default for new campaigns and can be disabled per campaign. Opens are a rough signal because privacy proxies pre-load images; clicks are far more reliable.",
   },
   {
     q: "Do recipients see each other?",

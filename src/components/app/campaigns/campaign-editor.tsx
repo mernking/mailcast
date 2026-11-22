@@ -57,6 +57,7 @@ import {
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { markdownToHtml } from "@/lib/markdown";
+import { Switch } from "@/components/ui/switch";
 import { RichTextEditor } from "./rich-text-editor";
 
 interface Sender {
@@ -81,6 +82,9 @@ interface CampaignDetail {
   sentCount: number;
   failedCount: number;
   openedCount: number;
+  clickedCount: number;
+  trackOpens: boolean;
+  trackClicks: boolean;
   createdAt: string;
   updatedAt: string;
   sentAt: string | null;
@@ -93,6 +97,10 @@ interface CampaignStats {
   sentCount: number;
   failedCount: number;
   openedCount: number;
+  clickedCount: number;
+  trackOpens: boolean;
+  trackClicks: boolean;
+  eventCounts: { open: number; click: number };
   pendingCount: number;
   status: string;
   recent: Array<{
@@ -198,6 +206,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const [content, setContent] = useState("");
   const [contentType, setContentType] = useState<string>("html");
   const [senderId, setSenderId] = useState("");
+  const [trackOpens, setTrackOpens] = useState(true);
+  const [trackClicks, setTrackClicks] = useState(true);
   // Sentinel meaning "all active contacts" (targetGroupId = null).
   const [targetGroupId, setTargetGroupId] = useState<string>("__all__");
   const [hydrated, setHydrated] = useState(false);
@@ -217,6 +227,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setPreheader(campaign.preheader || "");
       setContent(campaign.content || "");
       setSenderId(campaign.senderId || "");
+      setTrackOpens(campaign.trackOpens);
+      setTrackClicks(campaign.trackClicks);
       const ct = campaign.contentType === "html" ? "html" : "markdown";
       setContentType(ct);
       setTargetGroupId(campaign.targetGroupId || "__all__");
@@ -230,6 +242,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setContentType("html");
       setMode("visual");
       setSenderId("");
+      setTrackOpens(true);
+      setTrackClicks(true);
       setTargetGroupId("__all__");
     }
     setHydrated(true);
@@ -341,6 +355,8 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
     senderId,
     targetGroupId:
       targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
+    trackOpens,
+    trackClicks,
   });
 
   const handleSave = async () => {
@@ -650,6 +666,26 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
           <p className="text-[11px] text-muted-foreground">
             Restrict the broadcast to a contact group, or send to every active contact.
           </p>
+        </div>
+        <div className="flex flex-wrap gap-6 pt-1">
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch
+              checked={trackOpens}
+              onCheckedChange={setTrackOpens}
+              disabled={!canEdit}
+              aria-label="Track opens"
+            />
+            Track opens
+          </label>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch
+              checked={trackClicks}
+              onCheckedChange={setTrackClicks}
+              disabled={!canEdit}
+              aria-label="Track clicks"
+            />
+            Track clicks
+          </label>
         </div>
       </div>
 
@@ -967,11 +1003,16 @@ function StatsPanel({
 
       <Progress value={percent} />
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
         <StatTile label="Sent" value={stats.sentCount} tone="success" />
         <StatTile label="Failed" value={stats.failedCount} tone="danger" />
         <StatTile label="Pending" value={stats.pendingCount} tone="neutral" />
+        <StatTile label="Opened" value={stats.openedCount} tone="neutral" />
+        <StatTile label="Clicked" value={stats.clickedCount} tone="neutral" />
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        Opens can be inflated by privacy proxies; clicks are the reliable signal.
+      </p>
 
       {stats.recent.length > 0 && (
         <div className="mt-2">
