@@ -21,6 +21,7 @@ export async function GET() {
       sentCount: c.sentCount,
       failedCount: c.failedCount,
       openedCount: c.openedCount,
+      fontFamily: c.fontFamily,
       createdAt: c.createdAt,
       sentAt: c.sentAt,
       sender: c.sender ? { email: c.sender.email, fromName: c.sender.fromName } : null,
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { title, subject, content, preheader, senderId, contentType, targetGroupId, trackOpens, trackClicks } = (body ?? {}) as {
+    const { title, subject, content, preheader, senderId, contentType, targetGroupId, trackOpens, trackClicks, fontFamily } = (body ?? {}) as {
       title?: string;
       subject?: string;
       content?: string;
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       targetGroupId?: string | null;
       trackOpens?: boolean;
       trackClicks?: boolean;
+      fontFamily?: string;
     };
 
     if (!title || title.trim().length === 0) {
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest) {
         targetGroupId: targetGroupId || null,
         trackOpens: trackOpens !== false,
         trackClicks: trackClicks !== false,
+        fontFamily: fontFamily || "helvetica",
         status: "draft",
       },
       include: {
@@ -108,6 +111,7 @@ export async function POST(req: NextRequest) {
         openedCount: campaign.openedCount,
         trackOpens: campaign.trackOpens,
         trackClicks: campaign.trackClicks,
+        fontFamily: campaign.fontFamily,
         createdAt: campaign.createdAt,
         updatedAt: campaign.updatedAt,
         sentAt: campaign.sentAt,

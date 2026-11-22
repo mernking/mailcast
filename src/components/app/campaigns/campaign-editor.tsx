@@ -85,6 +85,7 @@ interface CampaignDetail {
   clickedCount: number;
   trackOpens: boolean;
   trackClicks: boolean;
+  fontFamily: string;
   createdAt: string;
   updatedAt: string;
   sentAt: string | null;
@@ -208,6 +209,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const [senderId, setSenderId] = useState("");
   const [trackOpens, setTrackOpens] = useState(true);
   const [trackClicks, setTrackClicks] = useState(true);
+  const [fontFamily, setFontFamily] = useState("helvetica");
   // Sentinel meaning "all active contacts" (targetGroupId = null).
   const [targetGroupId, setTargetGroupId] = useState<string>("__all__");
   const [hydrated, setHydrated] = useState(false);
@@ -229,6 +231,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setSenderId(campaign.senderId || "");
       setTrackOpens(campaign.trackOpens);
       setTrackClicks(campaign.trackClicks);
+      setFontFamily(campaign.fontFamily || "helvetica");
       const ct = campaign.contentType === "html" ? "html" : "markdown";
       setContentType(ct);
       setTargetGroupId(campaign.targetGroupId || "__all__");
@@ -244,6 +247,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setSenderId("");
       setTrackOpens(true);
       setTrackClicks(true);
+      setFontFamily("helvetica");
       setTargetGroupId("__all__");
     }
     setHydrated(true);
@@ -357,6 +361,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
     trackOpens,
     trackClicks,
+    fontFamily,
   });
 
   const handleSave = async () => {
@@ -667,7 +672,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             Restrict the broadcast to a contact group, or send to every active contact.
           </p>
         </div>
-        <div className="flex flex-wrap gap-6 pt-1">
+        <div className="flex flex-wrap gap-6 pt-1 items-center">
           <label className="flex items-center gap-2 text-sm text-foreground">
             <Switch
               checked={trackOpens}
@@ -686,6 +691,24 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             />
             Track clicks
           </label>
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <span>Font:</span>
+            <Select
+              value={fontFamily}
+              onValueChange={setFontFamily}
+              disabled={!canEdit}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Font" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="helvetica">Helvetica</SelectItem>
+                <SelectItem value="arial">Arial</SelectItem>
+                <SelectItem value="verdana">Verdana</SelectItem>
+                <SelectItem value="georgia">Georgia</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 

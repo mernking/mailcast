@@ -77,6 +77,8 @@ model Campaign {
   /// Per-campaign tracking switches
   trackOpens  Boolean  @default(false) @map("trackOpens")
   trackClicks Boolean  @default(false) @map("trackClicks")
+  /// Font family for the email body (helvetica, arial, verdana, georgia)
+  fontFamily  String   @default("helvetica") @map("fontFamily")
   createdAt   DateTime @default(now()) @map("createdAt")
   updatedAt   DateTime @updatedAt @map("updatedAt")
   sentAt      DateTime?  @map("sentAt")
