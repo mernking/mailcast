@@ -2,6 +2,8 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { decrypt } from "./crypto";
 import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
 import { classifySendResult, type SendClassification } from "./send-result";
+import { hostInlineImages } from "./email-media";
+import { db } from "./db";
 
 export interface SenderLike {
   email: string;
@@ -95,6 +97,25 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
   });
   const text = renderEmailText(body, contentType);
 
+  let finalHtml = html;
+  const context = args.context;
+  if (context?.baseUrl) {
+    finalHtml = await hostInlineImages(html, {
+      host: async (bytes, mimeType) => {
+        const stored = await db.storedFile.create({
+          data: {
+            name: "inline-image",
+            mimeType,
+            size: bytes.length,
+            data: new Uint8Array(bytes),
+          },
+          select: { id: true },
+        });
+        return `${context.baseUrl}/api/files/${stored.id}`;
+      },
+    });
+  }
+
   try {
     const transport = getTransport(args.sender);
     const info = await transport.sendMail({
@@ -102,7 +123,7 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
       to: args.to,
       subject,
       text,
-      html,
+      html: finalHtml,
       // Encourage interactive clients to render the HTML version
       headers: {
         "List-Unsubscribe": `<mailto:${args.sender.email}?subject=Unsubscribe>`,
