@@ -2,9 +2,8 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { decrypt } from "./crypto";
 import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
 import { classifySendResult, type SendClassification } from "./send-result";
-import { hostInlineImages } from "./email-media";
+import { inlineImagesToAttachments } from "./email-cid";
 import { prepareTrackedHtml } from "./tracking-store";
-import { db } from "./db";
 
 export interface SenderLike {
   email: string;
@@ -98,38 +97,24 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
   });
   const text = renderEmailText(body, contentType);
 
-  let finalHtml = html;
+  // Convert data: images to CID attachments
+  const { html: cidHtml, attachments } = inlineImagesToAttachments(html);
+  
+  let finalHtml = cidHtml;
   const context = args.context;
-  if (context?.baseUrl) {
-    finalHtml = await hostInlineImages(html, {
-      host: async (bytes, mimeType) => {
-        const stored = await db.storedFile.create({
-          data: {
-            name: "inline-image",
-            mimeType,
-            size: bytes.length,
-            data: new Uint8Array(bytes),
-          },
-          select: { id: true },
-        });
-        return `${context.baseUrl}/api/files/${stored.id}`;
-      },
+  if (
+    context?.baseUrl &&
+    context.campaignId &&
+    context.recipientId &&
+    (context.trackOpens || context.trackClicks)
+  ) {
+    finalHtml = await prepareTrackedHtml(finalHtml, {
+      baseUrl: context.baseUrl,
+      campaignId: context.campaignId,
+      recipientId: context.recipientId,
+      trackOpens: context.trackOpens,
+      trackClicks: context.trackClicks,
     });
-
-    if (
-      context?.baseUrl &&
-      context.campaignId &&
-      context.recipientId &&
-      (context.trackOpens || context.trackClicks)
-    ) {
-      finalHtml = await prepareTrackedHtml(finalHtml, {
-        baseUrl: context.baseUrl,
-        campaignId: context.campaignId,
-        recipientId: context.recipientId,
-        trackOpens: context.trackOpens,
-        trackClicks: context.trackClicks,
-      });
-    }
   }
 
   try {
@@ -140,6 +125,7 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
       subject,
       text,
       html: finalHtml,
+      attachments,
       // Encourage interactive clients to render the HTML version
       headers: {
         "List-Unsubscribe": `<mailto:${args.sender.email}?subject=Unsubscribe>`,

@@ -49,20 +49,18 @@ interface ToolbarAction {
   arg?: string;
   /** If true, prompt the user for a URL before running the command. */
   promptUrl?: boolean;
-  /** If true, open a file picker and upload the chosen image first. */
-  uploadImage?: boolean;
+  /** If true, open a file picker and embed the chosen image as data URI. */
+  pickImage?: boolean;
 }
 
-/** Upload an image and return the relative URL it will be served from. */
-export async function uploadImage(file: File): Promise<string> {
-  const form = new FormData();
-  form.append("file", file);
-  const res = await fetch("/api/files", { method: "POST", body: form });
-  const data = (await res.json()) as { id?: string; url?: string; error?: string };
-  if (!res.ok || !data.url) {
-    throw new Error(data.error || "Image upload failed");
-  }
-  return data.url;
+/** Convert an image file to a data URI for inline embedding. */
+export async function imageFileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 const TOOLBAR_ACTIONS: ToolbarAction[] = [
@@ -75,7 +73,7 @@ const TOOLBAR_ACTIONS: ToolbarAction[] = [
   { key: "ul", label: "Bulleted list", icon: <List className="size-4" />, command: "insertUnorderedList" },
   { key: "ol", label: "Numbered list", icon: <ListOrdered className="size-4" />, command: "insertOrderedList" },
   { key: "link", label: "Insert link", icon: <LinkIcon className="size-4" />, command: "createLink", promptUrl: true },
-  { key: "image", label: "Insert image", icon: <ImageIcon className="size-4" />, command: "insertImage", uploadImage: true },
+  { key: "image", label: "Insert image", icon: <ImageIcon className="size-4" />, command: "insertImage", pickImage: true },
   { key: "clear", label: "Clear formatting", icon: <RemoveFormatting className="size-4" />, command: "removeFormat" },
   { key: "undo", label: "Undo", icon: <Undo2 className="size-4" />, command: "undo" },
   { key: "redo", label: "Redo", icon: <Redo2 className="size-4" />, command: "redo" },
@@ -134,17 +132,17 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
       if (images.length === 0) return;
       rememberSelection();
       try {
-        const urls = await Promise.all(images.map(uploadImage));
+        const dataUris = await Promise.all(images.map(imageFileToDataUri));
         insertHtml(
-          urls
+          dataUris
             .map(
-              (url, index) =>
-                `<img src="${url}" alt="${images[index]?.name.replace(/["<>]/g, "") ?? "image"}">`
+              (dataUri, index) =>
+                `<img src="${dataUri}" alt="${images[index]?.name.replace(/["<>]/g, "") ?? "image"}">`
             )
             .join("")
         );
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Image upload failed");
+        toast.error(err instanceof Error ? err.message : "Image processing failed");
       }
     },
     [insertHtml, rememberSelection]
@@ -153,7 +151,7 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
   const exec = useCallback(
     (action: ToolbarAction) => {
       if (disabled) return;
-      if (action.uploadImage) {
+      if (action.pickImage) {
         fileRef.current?.click();
         return;
       }

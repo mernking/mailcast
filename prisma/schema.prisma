@@ -262,14 +262,3 @@ model TrackingEvent {
   @@index([campaignId, kind])
   @@index([recipientId, campaignId, kind])
 }
-
-/// An image uploaded for use in campaign emails. Stored in the database so it
-/// survives rebuilds of the standalone deployment.
-model StoredFile {
-  id        String   @id @default(cuid())
-  name      String
-  mimeType  String   @map("mimeType")
-  size      Int
-  data      Bytes
-  createdAt DateTime @default(now()) @map("createdAt")
-}
