@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { useFetch, apiFetch, fmtDateTime, truncate } from "../use-api";
+import { getPersistRequest } from "@/lib/campaign-persist";
 import { useAppStore } from "@/hooks/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -331,6 +332,17 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
     setMode(nextMode);
   };
 
+  const buildCampaignPayload = () => ({
+    title: title.trim(),
+    subject: subject.trim(),
+    content,
+    contentType,
+    preheader: preheader.trim() || null,
+    senderId,
+    targetGroupId:
+      targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
+  });
+
   const handleSave = async () => {
     if (!title.trim()) return toast.error("Add a title first.");
     if (!subject.trim()) return toast.error("Add a subject first.");
@@ -339,30 +351,14 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
 
     setSaving(true);
     try {
-      const payload = {
-        title: title.trim(),
-        subject: subject.trim(),
-        content,
-        contentType,
-        preheader: preheader.trim() || null,
-        senderId,
-        targetGroupId:
-          targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
-      };
-      if (isNew) {
-        const created = await apiFetch<CampaignDetail>("/api/campaigns", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        toast.success("Draft saved");
-        openCampaignEditor(created.id);
-      } else {
-        await apiFetch<CampaignDetail>(`/api/campaigns/${campaignId}`, {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        });
-        toast.success("Draft saved");
-      }
+      const payload = buildCampaignPayload();
+      const { method, url } = getPersistRequest(isNew, campaignId);
+      const response = await apiFetch<CampaignDetail>(url, {
+        method,
+        body: JSON.stringify(payload),
+      });
+      toast.success("Draft saved");
+      if (isNew) openCampaignEditor(response.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save draft");
     } finally {
@@ -372,19 +368,25 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
 
   const handleSend = async () => {
     setSendDialogOpen(false);
-    if (isNew) {
-      toast.error("Save the draft first before sending.");
-      return;
-    }
     setSending(true);
     try {
+      // Persist the current editor state so a new or edited campaign sends
+      // exactly what the user sees, rather than stale database content.
+      const { method, url } = getPersistRequest(isNew, campaignId);
+      const saved = await apiFetch<CampaignDetail>(url, {
+        method,
+        body: JSON.stringify(buildCampaignPayload()),
+      });
+      const savedId = isNew ? saved.id : campaignId;
+      if (isNew) openCampaignEditor(savedId);
+
       const result = await apiFetch<{
         ok: boolean;
         totalRecip: number;
         sentCount: number;
         failedCount: number;
         warning?: string;
-      }>(`/api/campaigns/${campaignId}/send`, { method: "POST" });
+      }>(`/api/campaigns/${savedId}/send`, { method: "POST" });
       const message = `Broadcast finished: ${result.sentCount} accepted, ${result.failedCount} failed.`;
       if (!result.ok || result.failedCount > 0) {
         toast.error(message, { description: result.warning });
@@ -449,7 +451,6 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const noRecipients = recipientCount === 0;
 
   const sendDisabled =
-    isNew ||
     !senderId ||
     !content.trim() ||
     !subject.trim() ||
@@ -461,21 +462,19 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   // Explain why Send is unavailable so a grayed-out button isn't a mystery.
   const sendDisabledReason = sending
     ? "Sending in progress."
-    : isNew
-      ? "Save the draft before sending."
-      : !senderId
-        ? "Pick a sender to enable sending."
-        : !content.trim()
-          ? "Add some content to enable sending."
-          : !subject.trim()
-            ? "Add a subject to enable sending."
-            : noRecipients
-              ? "There are no recipients to send to."
-              : isSending
-                ? "This campaign is currently sending."
-                : isSent
-                  ? "This campaign has already been sent."
-                  : null;
+    : !senderId
+      ? "Pick a sender to enable sending."
+      : !content.trim()
+        ? "Add some content to enable sending."
+        : !subject.trim()
+          ? "Add a subject to enable sending."
+          : noRecipients
+            ? "There are no recipients to send to."
+            : isSending
+              ? "This campaign is currently sending."
+              : isSent
+                ? "This campaign has already been sent."
+                : null;
 
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
