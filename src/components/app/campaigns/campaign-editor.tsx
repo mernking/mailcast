@@ -215,6 +215,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setSubject(campaign.subject || "");
       setPreheader(campaign.preheader || "");
       setContent(campaign.content || "");
+      setSenderId(campaign.senderId || "");
       const ct = campaign.contentType === "html" ? "html" : "markdown";
       setContentType(ct);
       setTargetGroupId(campaign.targetGroupId || "__all__");
@@ -452,7 +453,27 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
     !subject.trim() ||
     noRecipients ||
     isSending ||
-    isSent;
+    isSent ||
+    sending;
+
+  // Explain why Send is unavailable so a grayed-out button isn't a mystery.
+  const sendDisabledReason = sending
+    ? "Sending in progress."
+    : isNew
+      ? "Save the draft before sending."
+      : !senderId
+        ? "Pick a sender to enable sending."
+        : !content.trim()
+          ? "Add some content to enable sending."
+          : !subject.trim()
+            ? "Add a subject to enable sending."
+            : noRecipients
+              ? "There are no recipients to send to."
+              : isSending
+                ? "This campaign is currently sending."
+                : isSent
+                  ? "This campaign has already been sent."
+                  : null;
 
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
@@ -785,64 +806,71 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             </>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="rounded-full"
-            onClick={handleSave}
-            disabled={saving || !canEdit}
-          >
-            {saving ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Save className="size-4" />
-            )}
-            Save draft
-          </Button>
-
-          <AlertDialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
             <Button
+              variant="outline"
               className="rounded-full"
-              disabled={sendDisabled || sending}
-              onClick={() => setSendDialogOpen(true)}
+              onClick={handleSave}
+              disabled={saving || !canEdit}
             >
-              {sending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" /> Sending…
-                </>
+              {saving ? (
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <>
-                  <Send className="size-4" /> Send broadcast
-                </>
+                <Save className="size-4" />
               )}
+              Save draft
             </Button>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {targetGroupSelected
-                    ? `Send to ~${targetGroupSelected.contactCount} contacts in ${targetGroupSelected.name} now?`
-                    : `Send to ${activeContacts} recipients now?`}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {targetGroupSelected
-                    ? `This will send the email from your Gmail account to every contact in ${targetGroupSelected.name}. This action cannot be undone.`
-                    : "This will send the email from your Gmail account to every active contact. This action cannot be undone."}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleSend();
-                  }}
-                  disabled={sending}
-                >
-                  {sending ? <Loader2 className="size-4 animate-spin" /> : "Send now"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+
+            <AlertDialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+              <Button
+                className="rounded-full"
+                disabled={sendDisabled || sending}
+                onClick={() => setSendDialogOpen(true)}
+              >
+                {sending ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Sending…
+                  </>
+                ) : (
+                  <>
+                    <Send className="size-4" /> Send broadcast
+                  </>
+                )}
+              </Button>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {targetGroupSelected
+                      ? `Send to ~${targetGroupSelected.contactCount} contacts in ${targetGroupSelected.name} now?`
+                      : `Send to ${activeContacts} recipients now?`}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {targetGroupSelected
+                      ? `This will send the email from your Gmail account to every contact in ${targetGroupSelected.name}. This action cannot be undone.`
+                      : "This will send the email from your Gmail account to every active contact. This action cannot be undone."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleSend();
+                    }}
+                    disabled={sending}
+                  >
+                    {sending ? <Loader2 className="size-4 animate-spin" /> : "Send now"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+          {sendDisabledReason && (
+            <p className="text-xs text-muted-foreground text-right">
+              {sendDisabledReason}
+            </p>
+          )}
         </div>
       </div>
     </div>
