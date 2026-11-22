@@ -67,6 +67,13 @@ function splitList(value: string): string[] {
     .filter(Boolean);
 }
 
+export function mergeGroups(existing: string[], incoming: string[]): string[] {
+  return [...existing, ...incoming].filter(
+    (group, index, all) =>
+      all.findIndex((g) => g.toLowerCase() === group.toLowerCase()) === index
+  );
+}
+
 export function mapCsvRows(
   headers: string[],
   rows: string[][],
@@ -96,11 +103,9 @@ export function mapCsvRows(
     }
     seen.add(email);
 
-    const groups = [
-      ...defaultGroups,
-      ...groupIdx.flatMap((i) => splitList(row[i] ?? "")),
-    ].filter((group, index, all) =>
-      all.findIndex((g) => g.toLowerCase() === group.toLowerCase()) === index
+    const groups = mergeGroups(
+      defaultGroups,
+      groupIdx.flatMap((i) => splitList(row[i] ?? ""))
     );
 
     contacts.push({

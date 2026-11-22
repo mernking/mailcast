@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseCsv,
   mapCsvRows,
+  mergeGroups,
   type ColumnMapping,
 } from "../../src/lib/contact-import.ts";
 
@@ -50,6 +51,14 @@ test("mapCsvRows splits a group column and merges default groups", () => {
   assert.equal(result.contacts.length, 1);
   assert.equal(result.contacts[0]?.email, "jane@example.com");
   assert.deepEqual(result.contacts[0]?.groups, ["Default", "News", "Other"]);
+});
+
+test("mergeGroups returns a case-insensitive union", () => {
+  assert.deepEqual(mergeGroups(["News", "Other"], ["news", "Weekly"]), [
+    "News",
+    "Other",
+    "Weekly",
+  ]);
 });
 
 test("mapCsvRows skips invalid and duplicate emails", () => {
