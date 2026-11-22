@@ -128,7 +128,13 @@ export async function POST(
     for (const recip of pending) {
       if (!recip.contact) continue;
       const result = await sendCampaignEmail({
-        context: { baseUrl, campaignId: id, recipientId: recip.id },
+        context: {
+          baseUrl,
+          campaignId: id,
+          recipientId: recip.id,
+          trackOpens: campaign.trackOpens,
+          trackClicks: campaign.trackClicks,
+        },
         sender,
         to: recip.contact.email,
         name: recip.contact.name,

@@ -83,6 +83,8 @@ export async function PATCH(
       preheader?: string | null;
       senderId?: string;
       targetGroupId?: string | null;
+      trackOpens?: boolean;
+      trackClicks?: boolean;
     };
 
     const data: Record<string, unknown> = {};
@@ -94,6 +96,8 @@ export async function PATCH(
     else if (typeof patch.preheader === "string") data.preheader = patch.preheader.trim() || null;
     if (patch.targetGroupId === null) data.targetGroupId = null;
     else if (typeof patch.targetGroupId === "string") data.targetGroupId = patch.targetGroupId || null;
+    if (typeof patch.trackOpens === "boolean") data.trackOpens = patch.trackOpens;
+    if (typeof patch.trackClicks === "boolean") data.trackClicks = patch.trackClicks;
     if (typeof patch.senderId === "string" && patch.senderId) {
       const sender = await db.senderAccount.findUnique({ where: { id: patch.senderId } });
       if (!sender) {

@@ -36,6 +36,25 @@ test("an open pixel is appended", () => {
   assert.match(result, /width="1"/);
 });
 
+test("links stay untouched when click tracking is off", () => {
+  const result = buildTrackedHtml(`<a href="https://example.com/a">visit</a>`, {
+    baseUrl: "https://mail.example.com",
+    openToken: "OPEN1",
+    tokenForUrl: undefined,
+  });
+  assert.match(result, /href="https:\/\/example\.com\/a"/);
+  assert.doesNotMatch(result, /href="https:\/\/mail\.example\.com\/api\/t\//);
+});
+
+test("no open pixel is added when open tracking is off", () => {
+  const result = buildTrackedHtml(`<p>Hello</p>`, {
+    baseUrl: "https://mail.example.com",
+    openToken: undefined,
+    tokenForUrl: () => "T",
+  });
+  assert.doesNotMatch(result, /<img/);
+});
+
 test("mailto links are not rewritten", () => {
   const result = buildTrackedHtml(
     `<a href="mailto:someone@example.com">mail</a>`,

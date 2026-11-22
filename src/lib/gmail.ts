@@ -3,6 +3,7 @@ import { decrypt } from "./crypto";
 import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
 import { classifySendResult, type SendClassification } from "./send-result";
 import { hostInlineImages } from "./email-media";
+import { prepareTrackedHtml } from "./tracking-store";
 import { db } from "./db";
 
 export interface SenderLike {
@@ -114,6 +115,21 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
         return `${context.baseUrl}/api/files/${stored.id}`;
       },
     });
+
+    if (
+      context?.baseUrl &&
+      context.campaignId &&
+      context.recipientId &&
+      (context.trackOpens || context.trackClicks)
+    ) {
+      finalHtml = await prepareTrackedHtml(finalHtml, {
+        baseUrl: context.baseUrl,
+        campaignId: context.campaignId,
+        recipientId: context.recipientId,
+        trackOpens: context.trackOpens,
+        trackClicks: context.trackClicks,
+      });
+    }
   }
 
   try {
