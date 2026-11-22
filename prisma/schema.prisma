@@ -73,6 +73,10 @@ model Campaign {
   sentCount   Int      @default(0)
   failedCount Int      @default(0)
   openedCount Int      @default(0)
+  clickedCount Int     @default(0)
+  /// Per-campaign tracking switches
+  trackOpens  Boolean  @default(false)
+  trackClicks Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   sentAt      DateTime?
@@ -215,6 +219,37 @@ model AutomationEnrollment {
 model Setting {
   key   String @id
   value String
+}
+
+/// Opaque token embedded in a sent email for an open or click event.
+model TrackingToken {
+  token       String   @id @unique
+  campaignId  String
+  recipientId String
+  /// "open" | "click"
+  kind        String
+  /// Original destination for click tokens.
+  url         String?
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId, kind])
+  @@index([recipientId, campaignId, kind])
+}
+
+/// A recorded open or click event for one campaign recipient.
+model TrackingEvent {
+  id          String   @id @default(cuid())
+  tokenId     String
+  campaignId  String
+  recipientId String
+  /// "open" | "click"
+  kind        String
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId, kind])
+  @@index([recipientId, campaignId, kind])
 }
 
 /// An image uploaded for use in campaign emails. Stored in the database so it
