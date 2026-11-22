@@ -137,6 +137,7 @@ export async function POST(
 
       if (result.ok) {
         sentCount++;
+        console.log(`[send] campaign=${id} recipient=${recip.contact.email} accepted=${result.accepted.join(",")}`);
         try {
           await db.campaignRecipient.update({
             where: { id: recip.id },
@@ -147,6 +148,7 @@ export async function POST(
         }
       } else {
         failedCount++;
+        console.warn(`[send] campaign=${id} recipient=${recip.contact.email} rejected: ${result.error || "unknown error"}`);
         try {
           await db.campaignRecipient.update({
             where: { id: recip.id },
@@ -161,10 +163,11 @@ export async function POST(
       }
     }
 
+    const allFailed = sentCount === 0 && failedCount > 0;
     await db.campaign.update({
       where: { id },
       data: {
-        status: "sent",
+        status: allFailed ? "failed" : "sent",
         sentAt: new Date(),
         sentCount,
         failedCount,
@@ -172,12 +175,14 @@ export async function POST(
     });
 
     const warning =
-      totalRecip > 400
-        ? `Sent ${sentCount}/${totalRecip} (large broadcast — verify Gmail daily limits).`
-        : undefined;
+      failedCount > 0
+        ? `${failedCount} recipient(s) were rejected — check "Recent deliveries" for details.`
+        : totalRecip > 400
+          ? `Sent ${sentCount}/${totalRecip} (large broadcast — verify Gmail daily limits).`
+          : undefined;
 
     return NextResponse.json({
-      ok: true,
+      ok: failedCount === 0,
       totalRecip,
       sentCount,
       failedCount,

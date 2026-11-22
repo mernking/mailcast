@@ -385,10 +385,12 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         failedCount: number;
         warning?: string;
       }>(`/api/campaigns/${campaignId}/send`, { method: "POST" });
-      toast.success(
-        `Broadcast sent: ${result.sentCount} delivered, ${result.failedCount} failed.`,
-        { description: result.warning }
-      );
+      const message = `Broadcast finished: ${result.sentCount} accepted, ${result.failedCount} failed.`;
+      if (!result.ok || result.failedCount > 0) {
+        toast.error(message, { description: result.warning });
+      } else {
+        toast.success(message, { description: result.warning });
+      }
       // Force a full refresh of campaign + stats.
       window.location.reload();
     } catch (err) {

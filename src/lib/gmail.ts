@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { decrypt } from "./crypto";
 import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
+import { classifySendResult, type SendClassification } from "./send-result";
 
 export interface SenderLike {
   email: string;
@@ -27,6 +28,10 @@ function getTransport(sender: SenderLike): Transporter {
     rateLimit: 4, // stay well under Gmail limits (~20/s hard ceiling)
   });
 
+  transport.on("error", (err) => {
+    console.error(`[mail] SMTP transport error for ${sender.email}:`, err);
+  });
+
   cache.set(sender.email, transport);
   return transport;
 }
@@ -37,11 +42,7 @@ export async function verifySender(sender: SenderLike): Promise<void> {
   await transport.verify();
 }
 
-export interface SendResult {
-  messageId?: string;
-  ok: boolean;
-  error?: string;
-}
+export type SendResult = SendClassification;
 
 interface PersonalizationContext {
   email: string;
@@ -99,14 +100,14 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
         "X-Mailer": "MailCast",
       },
     });
-    return { ok: true, messageId: info.messageId };
+    return classifySendResult(info);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Drop the cached transport on auth errors so a re-added password is used.
     if (/auth|credentials|535/i.test(message)) {
       cache.delete(args.sender.email);
     }
-    return { ok: false, error: message };
+    return { ok: false, accepted: [], rejected: [], pending: [], error: message };
   }
 }
 
@@ -125,10 +126,10 @@ export async function sendTestEmail(sender: SenderLike, to: string): Promise<Sen
       html,
       text: "It works! This is a test broadcast from MailCast.",
     });
-    return { ok: true, messageId: info.messageId };
+    return classifySendResult(info);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (/auth|credentials|535/i.test(message)) cache.delete(sender.email);
-    return { ok: false, error: message };
+    return { ok: false, accepted: [], rejected: [], pending: [], error: message };
   }
 }
