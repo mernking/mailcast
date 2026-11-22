@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sendCampaignEmail } from "@/lib/gmail";
+import { getPublicBaseUrl } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,10 +17,11 @@ export const maxDuration = 300;
  *  5. Set status='sent' + sentAt=now at the end.
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const baseUrl = getPublicBaseUrl(req.headers);
 
   let campaign;
   try {
@@ -126,6 +128,7 @@ export async function POST(
     for (const recip of pending) {
       if (!recip.contact) continue;
       const result = await sendCampaignEmail({
+        context: { baseUrl, campaignId: id, recipientId: recip.id },
         sender,
         to: recip.contact.email,
         name: recip.contact.name,

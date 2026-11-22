@@ -59,7 +59,17 @@ function applyMerge(text: string, ctx: PersonalizationContext): string {
     .replaceAll("{{Name}}", ctx.name || ctx.email.split("@")[0]);
 }
 
+export interface SendContext {
+  /** Public origin for hosted images and tracking links. */
+  baseUrl: string;
+  campaignId?: string;
+  recipientId?: string;
+  trackOpens?: boolean;
+  trackClicks?: boolean;
+}
+
 export interface SendCampaignArgs {
+  context?: SendContext;
   sender: SenderLike;
   to: string;
   name?: string | null;
