@@ -262,3 +262,14 @@ model TrackingEvent {
   @@index([campaignId, kind])
   @@index([recipientId, campaignId, kind])
 }
+
+/// A reusable email template created with the GrapesJS/MJML editor.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  project   String   // GrapesJS project JSON
+  mjml      String?  // MJML source
+  html      String?  // Compiled HTML
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @updatedAt @map("updatedAt")
+}
