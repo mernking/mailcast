@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -16,13 +16,13 @@ model SenderAccount {
   /// Email address of the Gmail account, e.g. me@gmail.com
   email         String
   /// Display name shown to recipients in the From header
-  fromName      String
+  fromName      String   @map("fromName")
   /// AES-256-GCM encrypted Gmail app password (hex:iv:ciphertext:tag)
-  passwordEnc   String
+  passwordEnc   String   @map("passwordEnc")
   /// Whether this account has been verified to work
   verified      Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now()) @map("createdAt")
+  updatedAt     DateTime @updatedAt @map("updatedAt")
 
   campaigns  Campaign[]
   workflows  Workflow[]
@@ -39,9 +39,9 @@ model Contact {
   /// Telegram username (without @), if collected via a form
   telegram       String?
   /// Telegram numeric chat id, captured when the user messages the bot
-  telegramChatId String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  telegramChatId String?  @map("telegramChatId")
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @updatedAt @map("updatedAt")
 
   recipients       CampaignRecipient[]
   enrollments      AutomationEnrollment[]
@@ -60,22 +60,28 @@ model Campaign {
   /// Markdown body (when contentType=markdown) or raw HTML (when contentType=html)
   content     String
   /// "markdown" | "html" — how `content` should be rendered
-  contentType String   @default("markdown")
+  contentType String   @default("markdown") @map("contentType")
   /// Short preview text shown in inbox previews
   preheader   String?
   status      String   @default("draft") // draft | sending | sent | failed
-  senderId    String
+  senderId    String   @map("senderId")
   sender      SenderAccount @relation(fields: [senderId], references: [id], onDelete: Restrict)
   /// Optional target group. If null, sends to all active contacts.
-  targetGroupId String?
+  targetGroupId String?  @map("targetGroupId")
   targetGroup   ContactGroup? @relation(fields: [targetGroupId], references: [id], onDelete: SetNull)
-  totalRecip  Int      @default(0)
-  sentCount   Int      @default(0)
-  failedCount Int      @default(0)
-  openedCount Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  sentAt      DateTime?
+  totalRecip  Int      @default(0) @map("totalRecip")
+  sentCount   Int      @default(0) @map("sentCount")
+  failedCount Int      @default(0) @map("failedCount")
+  openedCount Int      @default(0) @map("openedCount")
+  clickedCount Int     @default(0) @map("clickedCount")
+  /// Per-campaign tracking switches
+  trackOpens  Boolean  @default(false) @map("trackOpens")
+  trackClicks Boolean  @default(false) @map("trackClicks")
+  /// Font family for the email body (helvetica, arial, verdana, georgia)
+  fontFamily  String   @default("helvetica") @map("fontFamily")
+  createdAt   DateTime @default(now()) @map("createdAt")
+  updatedAt   DateTime @updatedAt @map("updatedAt")
+  sentAt      DateTime?  @map("sentAt")
 
   recipients CampaignRecipient[]
 
@@ -85,13 +91,13 @@ model Campaign {
 /// Per-recipient delivery record for a campaign.
 model CampaignRecipient {
   id         String   @id @default(cuid())
-  campaignId String
-  contactId  String
+  campaignId String   @map("campaignId")
+  contactId  String   @map("contactId")
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   status     String   @default("pending") // pending | sent | failed
   error      String?
-  sentAt     DateTime?
+  sentAt     DateTime?  @map("sentAt")
 
   @@unique([campaignId, contactId])
   @@index([campaignId])
@@ -103,18 +109,18 @@ model Form {
   name            String
   /// JSON array of { name, label, type, required, placeholder }
   fields          String   @default("[]")
-  buttonText      String   @default("Subscribe")
-  successMessage  String   @default("Thanks for subscribing!")
-  redirectUrl     String?
+  buttonText      String   @default("Subscribe") @map("buttonText")
+  successMessage  String   @default("Thanks for subscribing!") @map("successMessage")
+  redirectUrl     String?  @map("redirectUrl")
   /// Comma-separated tags added to contacts created by this form
-  tagsToAdd       String   @default("")
-  accentColor     String   @default("#1a1a1a")
-  backgroundColor String   @default("#ffffff")
-  textColor       String   @default("#1a1a1a")
+  tagsToAdd       String   @default("") @map("tagsToAdd")
+  accentColor     String   @default("#1a1a1a") @map("accentColor")
+  backgroundColor String   @default("#ffffff") @map("backgroundColor")
+  textColor       String   @default("#1a1a1a") @map("textColor")
   /// Back-relation to the group this form feeds (the group owns the link via formId).
   group           ContactGroup?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now()) @map("createdAt")
+  updatedAt       DateTime @updatedAt @map("updatedAt")
 
   submissions FormSubmission[]
 }
@@ -122,14 +128,14 @@ model Form {
 /// A single submission to a signup form.
 model FormSubmission {
   id        String   @id @default(cuid())
-  formId    String
+  formId    String   @map("formId")
   form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
   email     String
   name      String?
   /// JSON of all submitted field values
   data      String   @default("{}")
-  contactId String?
-  createdAt DateTime @default(now())
+  contactId String?  @map("contactId")
+  createdAt DateTime @default(now()) @map("createdAt")
 
   @@index([formId])
 }
@@ -143,10 +149,10 @@ model ContactGroup {
   color       String   @default("#1a1a1a")
   /// If this group is tied to a form, the form's submissions populate it.
   /// Unique so a form feeds at most one group.
-  formId      String?  @unique
+  formId      String?  @unique @map("formId")
   form        Form?    @relation(fields: [formId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @map("createdAt")
+  updatedAt   DateTime @updatedAt @map("updatedAt")
 
   assignments   ContactGroupAssignment[]
   campaigns     Campaign[]
@@ -155,11 +161,11 @@ model ContactGroup {
 /// Join table for Contact <-> ContactGroup (many-to-many).
 model ContactGroupAssignment {
   id        String   @id @default(cuid())
-  contactId String
-  groupId   String
+  contactId String   @map("contactId")
+  groupId   String   @map("groupId")
   contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
   group     ContactGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @map("createdAt")
 
   @@unique([contactId, groupId])
   @@index([groupId])
@@ -174,16 +180,16 @@ model Workflow {
   /// Denormalized trigger type (mirrors the trigger node) for list display.
   trigger        String   @default("manual")
   /// JSON trigger config mirroring the trigger node.
-  triggerConfig  String   @default("{}")
-  senderId       String
+  triggerConfig  String   @default("{}") @map("triggerConfig")
+  senderId       String   @map("senderId")
   sender         SenderAccount @relation(fields: [senderId], references: [id], onDelete: Restrict)
   /// JSON graph: { nodes: [...], edges: [...] } — React Flow format.
   steps          String   @default("{\"nodes\":[],\"edges\":[]}")
   enabled        Boolean  @default(true)
-  enrolledCount  Int      @default(0)
-  completedCount Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  enrolledCount  Int      @default(0) @map("enrolledCount")
+  completedCount Int      @default(0) @map("completedCount")
+  createdAt      DateTime @default(now()) @map("createdAt")
+  updatedAt      DateTime @updatedAt @map("updatedAt")
 
   enrollments AutomationEnrollment[]
 }
@@ -191,21 +197,21 @@ model Workflow {
 /// A contact's progress through a workflow graph.
 model AutomationEnrollment {
   id          String   @id @default(cuid())
-  workflowId  String
+  workflowId  String   @map("workflowId")
   workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  contactId   String
+  contactId   String   @map("contactId")
   contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   /// Id of the next graph node to execute.
-  currentNodeId String @default("")
+  currentNodeId String @default("") @map("currentNodeId")
   /// Legacy step index (unused for graph workflows; kept for backward compat).
-  currentStep Int      @default(0)
+  currentStep Int      @default(0) @map("currentStep")
   /// "active" | "completed" | "failed"
   status      String   @default("active")
   /// When the next node should run
-  dueAt       DateTime @default(now())
+  dueAt       DateTime @default(now()) @map("dueAt")
   error       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @map("createdAt")
+  updatedAt   DateTime @updatedAt @map("updatedAt")
 
   @@index([status, dueAt])
   @@index([workflowId])
@@ -215,4 +221,55 @@ model AutomationEnrollment {
 model Setting {
   key   String @id
   value String
+}
+
+/// Opaque token embedded in a sent email for an open or click event.
+model TrackingToken {
+  token       String   @id @unique
+  campaignId  String   @map("campaignId")
+  recipientId String   @map("recipientId")
+  /// "open" | "click"
+  kind        String
+  /// Original destination for click tokens.
+  url         String?
+  createdAt   DateTime @default(now()) @map("createdAt")
+
+  @@index([campaignId, kind])
+  @@index([recipientId, campaignId, kind])
+}
+
+/// A recorded open or click event for one campaign recipient.
+/// One row per recipient/campaign open. Composite key makes dedupe atomic.
+model TrackingOpen {
+  campaignId  String   @map("campaignId")
+  recipientId String   @map("recipientId")
+  createdAt   DateTime @default(now()) @map("createdAt")
+
+  @@id([campaignId, recipientId])
+}
+
+model TrackingEvent {
+  id          String   @id @default(cuid())
+  tokenId     String   @map("tokenId")
+  campaignId  String   @map("campaignId")
+  recipientId String   @map("recipientId")
+  /// "open" | "click"
+  kind        String
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now()) @map("createdAt")
+
+  @@index([campaignId, kind])
+  @@index([recipientId, campaignId, kind])
+}
+
+/// A reusable email template created with the GrapesJS/MJML editor.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  project   String   // GrapesJS project JSON
+  mjml      String?  // MJML source
+  html      String?  // Compiled HTML
+  createdAt DateTime @default(now()) @map("createdAt")
+  updatedAt DateTime @updatedAt @map("updatedAt")
 }

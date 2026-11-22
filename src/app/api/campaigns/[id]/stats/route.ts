@@ -17,6 +17,9 @@ export async function GET(
         sentCount: true,
         failedCount: true,
         openedCount: true,
+        clickedCount: true,
+        trackOpens: true,
+        trackClicks: true,
         status: true,
       },
     });
@@ -28,6 +31,16 @@ export async function GET(
       0,
       campaign.totalRecip - campaign.sentCount - campaign.failedCount
     );
+
+    const eventGroups = await db.trackingEvent.groupBy({
+      by: ["kind"],
+      where: { campaignId: id },
+      _count: { _all: true },
+    });
+    const eventCounts = {
+      open: eventGroups.find((group) => group.kind === "open")?._count._all ?? 0,
+      click: eventGroups.find((group) => group.kind === "click")?._count._all ?? 0,
+    };
 
     const recentRecipients = await db.campaignRecipient.findMany({
       where: { campaignId: id },
@@ -56,6 +69,10 @@ export async function GET(
       sentCount: campaign.sentCount,
       failedCount: campaign.failedCount,
       openedCount: campaign.openedCount,
+      clickedCount: campaign.clickedCount,
+      trackOpens: campaign.trackOpens,
+      trackClicks: campaign.trackClicks,
+      eventCounts,
       pendingCount,
       status: campaign.status,
       recent,

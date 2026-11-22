@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import type { ChangeEvent, ClipboardEvent, DragEvent, ReactNode } from "react";
+import { toast } from "sonner";
 import {
   Bold,
   Italic,
@@ -35,6 +36,7 @@ type CommandType =
   | "insertOrderedList"
   | "createLink"
   | "insertImage"
+  | "insertHTML"
   | "removeFormat"
   | "undo"
   | "redo";
@@ -44,15 +46,23 @@ interface ToolbarAction {
   label: string;
   icon: ReactNode;
   command: CommandType;
-  /** Optional argument — for formatBlock it is the tag, for createLink/insertImage it is a prompt. */
   arg?: string;
   /** If true, prompt the user for a URL before running the command. */
   promptUrl?: boolean;
+  /** If true, open a file picker and embed the chosen image as data URI. */
+  pickImage?: boolean;
 }
 
-// Static descriptor list. Keeping this outside the component avoids rebuilding
-// the array every render and keeps ref-touching closures out of the render
-// path (which the react-hooks/refs lint rule guards against).
+/** Convert an image file to a data URI for inline embedding. */
+export async function imageFileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 const TOOLBAR_ACTIONS: ToolbarAction[] = [
   { key: "bold", label: "Bold", icon: <Bold className="size-4" />, command: "bold" },
   { key: "italic", label: "Italic", icon: <Italic className="size-4" />, command: "italic" },
@@ -63,27 +73,22 @@ const TOOLBAR_ACTIONS: ToolbarAction[] = [
   { key: "ul", label: "Bulleted list", icon: <List className="size-4" />, command: "insertUnorderedList" },
   { key: "ol", label: "Numbered list", icon: <ListOrdered className="size-4" />, command: "insertOrderedList" },
   { key: "link", label: "Insert link", icon: <LinkIcon className="size-4" />, command: "createLink", promptUrl: true },
-  { key: "image", label: "Insert image", icon: <ImageIcon className="size-4" />, command: "insertImage", promptUrl: true },
+  { key: "image", label: "Insert image", icon: <ImageIcon className="size-4" />, command: "insertImage", pickImage: true },
   { key: "clear", label: "Clear formatting", icon: <RemoveFormatting className="size-4" />, command: "removeFormat" },
   { key: "undo", label: "Undo", icon: <Undo2 className="size-4" />, command: "undo" },
   { key: "redo", label: "Redo", icon: <Redo2 className="size-4" />, command: "redo" },
 ];
 
 /**
- * Lightweight WYSIWYG editor built on a contentEditable div + the (deprecated
- * but universally supported) document.execCommand API. Good enough for
- * authoring newsletter body HTML without pulling a 200kb dependency.
- *
+ * Lightweight WYSIWYG editor on a contentEditable div + document.execCommand.
  * The editable element's innerHTML is initialized from `value` only when the
- * incoming value differs from the element's current innerHTML — this prevents
- * cursor jumps while the user is typing (since onChange feeds the same string
- * back up and re-renders the parent).
+ * incoming value differs from the live DOM, preventing caret jumps.
  */
 export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProps) {
   const elRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const savedRange = useRef<Range | null>(null);
 
-  // Initialize / sync innerHTML only when the incoming value differs from
-  // the live DOM. This is what avoids clobbering the caret on every keystroke.
   useEffect(() => {
     const el = elRef.current;
     if (!el) return;
@@ -92,12 +97,64 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
     }
   }, [value]);
 
-  // Run a formatting command against the editable element. Memoized so the
-  // toolbar buttons can safely reference it without re-creating closures in
-  // the render path.
+  const rememberSelection = useCallback(() => {
+    const selection = window.getSelection();
+    savedRange.current =
+      selection && selection.rangeCount > 0
+        ? selection.getRangeAt(0).cloneRange()
+        : null;
+  }, []);
+
+  const insertHtml = useCallback(
+    (html: string) => {
+      const el = elRef.current;
+      if (!el) return;
+      el.focus();
+      const selection = window.getSelection();
+      if (savedRange.current && selection) {
+        selection.removeAllRanges();
+        selection.addRange(savedRange.current);
+      }
+      try {
+        document.execCommand("insertHTML", false, html);
+      } catch {
+        /* no-op */
+      }
+      onChange(el.innerHTML);
+      savedRange.current = null;
+    },
+    [onChange]
+  );
+
+  const insertImages = useCallback(
+    async (files: File[]) => {
+      const images = files.filter((file) => file.type.startsWith("image/"));
+      if (images.length === 0) return;
+      rememberSelection();
+      try {
+        const dataUris = await Promise.all(images.map(imageFileToDataUri));
+        insertHtml(
+          dataUris
+            .map(
+              (dataUri, index) =>
+                `<img src="${dataUri}" alt="${images[index]?.name.replace(/["<>]/g, "") ?? "image"}">`
+            )
+            .join("")
+        );
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Image processing failed");
+      }
+    },
+    [insertHtml, rememberSelection]
+  );
+
   const exec = useCallback(
     (action: ToolbarAction) => {
       if (disabled) return;
+      if (action.pickImage) {
+        fileRef.current?.click();
+        return;
+      }
       const el = elRef.current;
       if (!el) return;
       el.focus();
@@ -105,20 +162,18 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
       let arg = action.arg;
       if (action.promptUrl) {
         const url =
-          typeof window !== "undefined" ? window.prompt(action.label === "Insert image" ? "Image URL" : "Link URL", "") : null;
+          typeof window !== "undefined"
+            ? window.prompt(action.label === "Insert image" ? "Image URL" : "Link URL", "")
+            : null;
         if (!url || !url.trim()) return;
         arg = url.trim();
       }
 
       try {
-        // execCommand is deprecated but still works in all current browsers and
-        // is the simplest way to handle contentEditable formatting without a
-        // full framework. Guard in try/catch for safety.
         document.execCommand(action.command, false, arg);
       } catch {
         /* no-op */
       }
-      // Sync the new HTML up to the parent after every formatting action.
       onChange(el.innerHTML);
     },
     [disabled, onChange]
@@ -133,12 +188,50 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
   const handleBlur = useCallback(() => {
     const el = elRef.current;
     if (!el) return;
-    // Catch any trailing DOM mutation that didn't fire an input event.
     if (el.innerHTML !== value) onChange(el.innerHTML);
   }, [value, onChange]);
 
+  const handleFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []);
+      void insertImages(files);
+      event.target.value = "";
+    },
+    [insertImages]
+  );
+
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      const files = Array.from(event.clipboardData.files);
+      if (files.some((file) => file.type.startsWith("image/"))) {
+        event.preventDefault();
+        void insertImages(files);
+      }
+    },
+    [insertImages]
+  );
+
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      const files = Array.from(event.dataTransfer.files);
+      if (files.some((file) => file.type.startsWith("image/"))) {
+        event.preventDefault();
+        void insertImages(files);
+      }
+    },
+    [insertImages]
+  );
+
   return (
     <div className="border rounded-lg overflow-hidden bg-card">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+      />
       <div
         className="bg-muted/50 border-b rounded-t-lg px-2 py-1 flex flex-wrap gap-1 sticky top-0 z-10"
         role="toolbar"
@@ -167,6 +260,8 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
         spellCheck
         onInput={handleInput}
         onBlur={handleBlur}
+        onPaste={handlePaste}
+        onDrop={handleDrop}
         className={cn(
           "min-h-[320px] prose-sm outline-none px-3 py-2 rounded-b-lg focus:ring-1 focus:ring-ring",
           "[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-2 [&_h1]:font-serif",

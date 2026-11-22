@@ -795,12 +795,15 @@ function AddContactDialog({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [tags, setTags] = useState("");
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const { data: groups } = useFetch<GroupItem[]>("/api/groups");
 
   const reset = () => {
     setEmail("");
     setName("");
     setTags("");
+    setSelectedGroups([]);
   };
 
   const submit = async () => {
@@ -813,6 +816,7 @@ function AddContactDialog({
           email: email.trim(),
           name: name.trim() || null,
           tags,
+          groupIds: selectedGroups,
         }),
       });
       toast.success("Contact added");
@@ -865,6 +869,44 @@ function AddContactDialog({
               placeholder="founders, weekly-digest"
             />
             <p className="text-xs text-muted-foreground">Comma-separated.</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Groups (optional)</Label>
+            {groups && groups.length > 0 ? (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Groups">
+                {groups.map((group) => {
+                  const selected = selectedGroups.includes(group.id);
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() =>
+                        setSelectedGroups((current) =>
+                          selected
+                            ? current.filter((id) => id !== group.id)
+                            : [...current, group.id]
+                        )
+                      }
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                        selected
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span
+                        className="size-2 rounded-full"
+                        style={{ backgroundColor: group.color }}
+                        aria-hidden
+                      />
+                      {group.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No groups yet — create one in the Groups tab.</p>
+            )}
           </div>
         </div>
         <DialogFooter>

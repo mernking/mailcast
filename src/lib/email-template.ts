@@ -1,4 +1,5 @@
 import { markdownToHtml, markdownToText } from "./markdown";
+import { getFontStack, stripWrapperPadding } from "./email-font";
 
 export type EmailContentType = "markdown" | "html";
 
@@ -6,10 +7,8 @@ interface RenderOptions {
   contentType?: EmailContentType;
   preheader?: string;
   unsubscribeEmail?: string;
+  fontFamily?: string;
 }
-
-const FONT_STACK =
-  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 /**
  * Strip content that is unsafe or undesirable in transactional/newsletter
@@ -65,6 +64,7 @@ function htmlToText(html: string): string {
  * otherwise it is converted from markdown.
  */
 export function renderEmailHtml(content: string, opts: RenderOptions = {}): string {
+  const fontStack = getFontStack(opts.fontFamily);
   const bodyHtml =
     opts.contentType === "html"
       ? sanitizeEmailHtml(content)
@@ -76,7 +76,7 @@ export function renderEmailHtml(content: string, opts: RenderOptions = {}): stri
   const footer = opts.unsubscribeEmail
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #ececec;margin-top:32px;padding-top:24px;padding-bottom:24px">
         <tr>
-          <td align="center" style="font-family:${FONT_STACK};font-size:12px;line-height:18px;color:#888">
+          <td align="center" style="font-family:${fontStack};font-size:12px;line-height:18px;color:#888">
             You received this email because you subscribed to our newsletter.<br/>
             <a href="mailto:${escapeHtml(opts.unsubscribeEmail)}?subject=Unsubscribe" style="color:#888;text-decoration:underline">Unsubscribe</a>
             &nbsp;&middot;&nbsp; Reply to this email to get in touch.
@@ -85,7 +85,7 @@ export function renderEmailHtml(content: string, opts: RenderOptions = {}): stri
       </table>`
     : "";
 
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -93,21 +93,21 @@ export function renderEmailHtml(content: string, opts: RenderOptions = {}): stri
 <meta name="color-scheme" content="light only"/>
 <title>Newsletter</title>
 </head>
-<body style="margin:0;padding:0;background-color:#faf9f6;font-family:${FONT_STACK};color:#1a1a1a">
+<body style="margin:0;padding:0;background-color:#faf9f6;font-family:${fontStack};color:#1a1a1a">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#faf9f6">
     <tr>
-      <td align="center" style="padding:24px 12px">
+      <td align="center" style="padding:0 12px">
         <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background-color:#ffffff;border-radius:14px;border:1px solid #ececec;overflow:hidden">
           <tr>
-            <td style="padding:40px 40px 8px 40px">
+            <td style="padding:0">
               ${preheader}
-              <div style="font-family:${FONT_STACK};font-size:16px;line-height:26px;color:#1a1a1a">
+              <div style="font-family:${fontStack};font-size:16px;line-height:26px;color:#1a1a1a">
                 ${styledBody(bodyHtml)}
               </div>
             </td>
           </tr>
           <tr>
-            <td style="padding:0 40px">${footer}</td>
+            <td style="padding:0">${footer}</td>
           </tr>
         </table>
       </td>
@@ -115,6 +115,8 @@ export function renderEmailHtml(content: string, opts: RenderOptions = {}): stri
   </table>
 </body>
 </html>`;
+
+  return stripWrapperPadding(html);
 }
 
 /**

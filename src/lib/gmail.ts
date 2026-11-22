@@ -1,6 +1,9 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { decrypt } from "./crypto";
 import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
+import { classifySendResult, type SendClassification } from "./send-result";
+import { inlineImagesToAttachments } from "./email-cid";
+import { prepareTrackedHtml } from "./tracking-store";
 
 export interface SenderLike {
   email: string;
@@ -27,6 +30,10 @@ function getTransport(sender: SenderLike): Transporter {
     rateLimit: 4, // stay well under Gmail limits (~20/s hard ceiling)
   });
 
+  transport.on("error", (err) => {
+    console.error(`[mail] SMTP transport error for ${sender.email}:`, err);
+  });
+
   cache.set(sender.email, transport);
   return transport;
 }
@@ -37,11 +44,7 @@ export async function verifySender(sender: SenderLike): Promise<void> {
   await transport.verify();
 }
 
-export interface SendResult {
-  messageId?: string;
-  ok: boolean;
-  error?: string;
-}
+export type SendResult = SendClassification;
 
 interface PersonalizationContext {
   email: string;
@@ -58,7 +61,17 @@ function applyMerge(text: string, ctx: PersonalizationContext): string {
     .replaceAll("{{Name}}", ctx.name || ctx.email.split("@")[0]);
 }
 
+export interface SendContext {
+  /** Public origin for hosted images and tracking links. */
+  baseUrl: string;
+  campaignId?: string;
+  recipientId?: string;
+  trackOpens?: boolean;
+  trackClicks?: boolean;
+}
+
 export interface SendCampaignArgs {
+  context?: SendContext;
   sender: SenderLike;
   to: string;
   name?: string | null;
@@ -84,6 +97,26 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
   });
   const text = renderEmailText(body, contentType);
 
+  // Convert data: images to CID attachments
+  const { html: cidHtml, attachments } = inlineImagesToAttachments(html);
+  
+  let finalHtml = cidHtml;
+  const context = args.context;
+  if (
+    context?.baseUrl &&
+    context.campaignId &&
+    context.recipientId &&
+    (context.trackOpens || context.trackClicks)
+  ) {
+    finalHtml = await prepareTrackedHtml(finalHtml, {
+      baseUrl: context.baseUrl,
+      campaignId: context.campaignId,
+      recipientId: context.recipientId,
+      trackOpens: context.trackOpens,
+      trackClicks: context.trackClicks,
+    });
+  }
+
   try {
     const transport = getTransport(args.sender);
     const info = await transport.sendMail({
@@ -91,7 +124,8 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
       to: args.to,
       subject,
       text,
-      html,
+      html: finalHtml,
+      attachments,
       // Encourage interactive clients to render the HTML version
       headers: {
         "List-Unsubscribe": `<mailto:${args.sender.email}?subject=Unsubscribe>`,
@@ -99,14 +133,14 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
         "X-Mailer": "MailCast",
       },
     });
-    return { ok: true, messageId: info.messageId };
+    return classifySendResult(info);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Drop the cached transport on auth errors so a re-added password is used.
     if (/auth|credentials|535/i.test(message)) {
       cache.delete(args.sender.email);
     }
-    return { ok: false, error: message };
+    return { ok: false, accepted: [], rejected: [], pending: [], error: message };
   }
 }
 
@@ -125,10 +159,10 @@ export async function sendTestEmail(sender: SenderLike, to: string): Promise<Sen
       html,
       text: "It works! This is a test broadcast from MailCast.",
     });
-    return { ok: true, messageId: info.messageId };
+    return classifySendResult(info);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (/auth|credentials|535/i.test(message)) cache.delete(sender.email);
-    return { ok: false, error: message };
+    return { ok: false, accepted: [], rejected: [], pending: [], error: message };
   }
 }

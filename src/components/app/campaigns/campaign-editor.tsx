@@ -14,9 +14,11 @@ import {
   PencilLine,
   Code,
   Type,
+  LayoutDashboard,
 } from "lucide-react";
 
 import { useFetch, apiFetch, fmtDateTime, truncate } from "../use-api";
+import { getPersistRequest } from "@/lib/campaign-persist";
 import { useAppStore } from "@/hooks/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +58,9 @@ import {
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { markdownToHtml } from "@/lib/markdown";
+import { Switch } from "@/components/ui/switch";
 import { RichTextEditor } from "./rich-text-editor";
+import { EmailBuilder } from "@/components/app/templates/email-builder";
 
 interface Sender {
   id: string;
@@ -80,6 +84,10 @@ interface CampaignDetail {
   sentCount: number;
   failedCount: number;
   openedCount: number;
+  clickedCount: number;
+  trackOpens: boolean;
+  trackClicks: boolean;
+  fontFamily: string;
   createdAt: string;
   updatedAt: string;
   sentAt: string | null;
@@ -92,6 +100,10 @@ interface CampaignStats {
   sentCount: number;
   failedCount: number;
   openedCount: number;
+  clickedCount: number;
+  trackOpens: boolean;
+  trackClicks: boolean;
+  eventCounts: { open: number; click: number };
   pendingCount: number;
   status: string;
   recent: Array<{
@@ -117,7 +129,7 @@ const MERGE_TAGS = [
   { label: "{{email}}", value: "{{email}}" },
 ];
 
-type EditorMode = "visual" | "html" | "markdown" | "preview";
+type EditorMode = "visual" | "html" | "markdown" | "preview" | "design";
 
 /**
  * Best-effort conversion of an HTML body string to a markdown approximation.
@@ -197,6 +209,9 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const [content, setContent] = useState("");
   const [contentType, setContentType] = useState<string>("html");
   const [senderId, setSenderId] = useState("");
+  const [trackOpens, setTrackOpens] = useState(true);
+  const [trackClicks, setTrackClicks] = useState(true);
+  const [fontFamily, setFontFamily] = useState("helvetica");
   // Sentinel meaning "all active contacts" (targetGroupId = null).
   const [targetGroupId, setTargetGroupId] = useState<string>("__all__");
   const [hydrated, setHydrated] = useState(false);
@@ -215,6 +230,10 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setSubject(campaign.subject || "");
       setPreheader(campaign.preheader || "");
       setContent(campaign.content || "");
+      setSenderId(campaign.senderId || "");
+      setTrackOpens(campaign.trackOpens);
+      setTrackClicks(campaign.trackClicks);
+      setFontFamily(campaign.fontFamily || "helvetica");
       const ct = campaign.contentType === "html" ? "html" : "markdown";
       setContentType(ct);
       setTargetGroupId(campaign.targetGroupId || "__all__");
@@ -228,6 +247,9 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setContentType("html");
       setMode("visual");
       setSenderId("");
+      setTrackOpens(true);
+      setTrackClicks(true);
+      setFontFamily("helvetica");
       setTargetGroupId("__all__");
     }
     setHydrated(true);
@@ -330,6 +352,20 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
     setMode(nextMode);
   };
 
+  const buildCampaignPayload = () => ({
+    title: title.trim(),
+    subject: subject.trim(),
+    content,
+    contentType,
+    preheader: preheader.trim() || null,
+    senderId,
+    targetGroupId:
+      targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
+    trackOpens,
+    trackClicks,
+    fontFamily,
+  });
+
   const handleSave = async () => {
     if (!title.trim()) return toast.error("Add a title first.");
     if (!subject.trim()) return toast.error("Add a subject first.");
@@ -338,30 +374,14 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
 
     setSaving(true);
     try {
-      const payload = {
-        title: title.trim(),
-        subject: subject.trim(),
-        content,
-        contentType,
-        preheader: preheader.trim() || null,
-        senderId,
-        targetGroupId:
-          targetGroupId && targetGroupId !== "__all__" ? targetGroupId : null,
-      };
-      if (isNew) {
-        const created = await apiFetch<CampaignDetail>("/api/campaigns", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        toast.success("Draft saved");
-        openCampaignEditor(created.id);
-      } else {
-        await apiFetch<CampaignDetail>(`/api/campaigns/${campaignId}`, {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        });
-        toast.success("Draft saved");
-      }
+      const payload = buildCampaignPayload();
+      const { method, url } = getPersistRequest(isNew, campaignId);
+      const response = await apiFetch<CampaignDetail>(url, {
+        method,
+        body: JSON.stringify(payload),
+      });
+      toast.success("Draft saved");
+      if (isNew) openCampaignEditor(response.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save draft");
     } finally {
@@ -371,23 +391,31 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
 
   const handleSend = async () => {
     setSendDialogOpen(false);
-    if (isNew) {
-      toast.error("Save the draft first before sending.");
-      return;
-    }
     setSending(true);
     try {
+      // Persist the current editor state so a new or edited campaign sends
+      // exactly what the user sees, rather than stale database content.
+      const { method, url } = getPersistRequest(isNew, campaignId);
+      const saved = await apiFetch<CampaignDetail>(url, {
+        method,
+        body: JSON.stringify(buildCampaignPayload()),
+      });
+      const savedId = isNew ? saved.id : campaignId;
+      if (isNew) openCampaignEditor(savedId);
+
       const result = await apiFetch<{
         ok: boolean;
         totalRecip: number;
         sentCount: number;
         failedCount: number;
         warning?: string;
-      }>(`/api/campaigns/${campaignId}/send`, { method: "POST" });
-      toast.success(
-        `Broadcast sent: ${result.sentCount} delivered, ${result.failedCount} failed.`,
-        { description: result.warning }
-      );
+      }>(`/api/campaigns/${savedId}/send`, { method: "POST" });
+      const message = `Broadcast finished: ${result.sentCount} accepted, ${result.failedCount} failed.`;
+      if (!result.ok || result.failedCount > 0) {
+        toast.error(message, { description: result.warning });
+      } else {
+        toast.success(message, { description: result.warning });
+      }
       // Force a full refresh of campaign + stats.
       window.location.reload();
     } catch (err) {
@@ -446,13 +474,30 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const noRecipients = recipientCount === 0;
 
   const sendDisabled =
-    isNew ||
     !senderId ||
     !content.trim() ||
     !subject.trim() ||
     noRecipients ||
     isSending ||
-    isSent;
+    isSent ||
+    sending;
+
+  // Explain why Send is unavailable so a grayed-out button isn't a mystery.
+  const sendDisabledReason = sending
+    ? "Sending in progress."
+    : !senderId
+      ? "Pick a sender to enable sending."
+      : !content.trim()
+        ? "Add some content to enable sending."
+        : !subject.trim()
+          ? "Add a subject to enable sending."
+          : noRecipients
+            ? "There are no recipients to send to."
+            : isSending
+              ? "This campaign is currently sending."
+              : isSent
+                ? "This campaign has already been sent."
+                : null;
 
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
@@ -629,6 +674,44 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             Restrict the broadcast to a contact group, or send to every active contact.
           </p>
         </div>
+        <div className="flex flex-wrap gap-6 pt-1 items-center">
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch
+              checked={trackOpens}
+              onCheckedChange={setTrackOpens}
+              disabled={!canEdit}
+              aria-label="Track opens"
+            />
+            Track opens
+          </label>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch
+              checked={trackClicks}
+              onCheckedChange={setTrackClicks}
+              disabled={!canEdit}
+              aria-label="Track clicks"
+            />
+            Track clicks
+          </label>
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <span>Font:</span>
+            <Select
+              value={fontFamily}
+              onValueChange={setFontFamily}
+              disabled={!canEdit}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Font" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="helvetica">Helvetica</SelectItem>
+                <SelectItem value="arial">Arial</SelectItem>
+                <SelectItem value="verdana">Verdana</SelectItem>
+                <SelectItem value="georgia">Georgia</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </div>
 
       {/* Body: Visual / HTML / Markdown / Preview */}
@@ -642,6 +725,9 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               </p>
             </div>
             <TabsList className="flex-wrap h-auto">
+              <TabsTrigger value="design" disabled={!canEdit} className="gap-1.5">
+                <LayoutDashboard className="size-3.5" /> Design
+              </TabsTrigger>
               <TabsTrigger value="visual" disabled={!canEdit} className="gap-1.5">
                 <PencilLine className="size-3.5" /> Visual
               </TabsTrigger>
@@ -656,6 +742,29 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               </TabsTrigger>
             </TabsList>
           </div>
+
+          {/* GrapesJS/MJML Design */}
+          <TabsContent value="design" className="mt-4">
+            <div className="flex flex-col gap-3">
+              {canEdit && (
+                <Alert className="border-border/50 bg-muted/30">
+                  <AlertTitle>Drag & Drop Email Builder</AlertTitle>
+                  <AlertDescription>
+                    Build responsive emails visually with GrapesJS & MJML. Content syncs to HTML mode automatically.
+                    Use merge tags (\u007B\u007Bname\u007D\u007D, \u007B\u007Bemail\u007D\u007D) in text blocks for personalization.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <EmailBuilder
+                templateId={campaign?.id ? undefined : undefined}
+                onHtml={(html) => {
+                  setContent(html);
+                  setContentType("html");
+                  setMode("html");
+                }}
+              />
+            </div>
+          </TabsContent>
 
           {/* Visual WYSIWYG */}
           <TabsContent value="visual" className="mt-4">
@@ -785,64 +894,71 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             </>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="rounded-full"
-            onClick={handleSave}
-            disabled={saving || !canEdit}
-          >
-            {saving ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Save className="size-4" />
-            )}
-            Save draft
-          </Button>
-
-          <AlertDialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
             <Button
+              variant="outline"
               className="rounded-full"
-              disabled={sendDisabled || sending}
-              onClick={() => setSendDialogOpen(true)}
+              onClick={handleSave}
+              disabled={saving || !canEdit}
             >
-              {sending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" /> Sending…
-                </>
+              {saving ? (
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <>
-                  <Send className="size-4" /> Send broadcast
-                </>
+                <Save className="size-4" />
               )}
+              Save draft
             </Button>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {targetGroupSelected
-                    ? `Send to ~${targetGroupSelected.contactCount} contacts in ${targetGroupSelected.name} now?`
-                    : `Send to ${activeContacts} recipients now?`}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {targetGroupSelected
-                    ? `This will send the email from your Gmail account to every contact in ${targetGroupSelected.name}. This action cannot be undone.`
-                    : "This will send the email from your Gmail account to every active contact. This action cannot be undone."}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleSend();
-                  }}
-                  disabled={sending}
-                >
-                  {sending ? <Loader2 className="size-4 animate-spin" /> : "Send now"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+
+            <AlertDialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+              <Button
+                className="rounded-full"
+                disabled={sendDisabled || sending}
+                onClick={() => setSendDialogOpen(true)}
+              >
+                {sending ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Sending…
+                  </>
+                ) : (
+                  <>
+                    <Send className="size-4" /> Send broadcast
+                  </>
+                )}
+              </Button>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {targetGroupSelected
+                      ? `Send to ~${targetGroupSelected.contactCount} contacts in ${targetGroupSelected.name} now?`
+                      : `Send to ${activeContacts} recipients now?`}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {targetGroupSelected
+                      ? `This will send the email from your Gmail account to every contact in ${targetGroupSelected.name}. This action cannot be undone.`
+                      : "This will send the email from your Gmail account to every active contact. This action cannot be undone."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleSend();
+                    }}
+                    disabled={sending}
+                  >
+                    {sending ? <Loader2 className="size-4 animate-spin" /> : "Send now"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+          {sendDisabledReason && (
+            <p className="text-xs text-muted-foreground text-right">
+              {sendDisabledReason}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -938,11 +1054,16 @@ function StatsPanel({
 
       <Progress value={percent} />
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
         <StatTile label="Sent" value={stats.sentCount} tone="success" />
         <StatTile label="Failed" value={stats.failedCount} tone="danger" />
         <StatTile label="Pending" value={stats.pendingCount} tone="neutral" />
+        <StatTile label="Opened" value={stats.openedCount} tone="neutral" />
+        <StatTile label="Clicked" value={stats.clickedCount} tone="neutral" />
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        Opens can be inflated by privacy proxies; clicks are the reliable signal.
+      </p>
 
       {stats.recent.length > 0 && (
         <div className="mt-2">

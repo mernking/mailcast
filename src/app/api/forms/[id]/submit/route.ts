@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { enrollContact, processDueEnrollments } from "@/lib/automation";
+import { validateSubmission } from "@/lib/form-submission";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,26 @@ export async function POST(
     if (!email || !EMAIL_RE.test(email)) {
       return NextResponse.json(
         { ok: false, error: "A valid email is required" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    let requiredFields: string[] = [];
+    try {
+      const fields = JSON.parse(form.fields || "[]") as Array<{
+        name?: string;
+        required?: boolean;
+      }>;
+      requiredFields = fields
+        .filter((field) => field.required && typeof field.name === "string")
+        .map((field) => field.name as string);
+    } catch {
+      requiredFields = [];
+    }
+    const validation = validateSubmission(values, requiredFields);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { ok: false, error: `Missing required fields: ${validation.missing.join(", ")}` },
         { status: 400, headers: CORS_HEADERS }
       );
     }

@@ -33,6 +33,10 @@ export async function GET(
       sentCount: campaign.sentCount,
       failedCount: campaign.failedCount,
       openedCount: campaign.openedCount,
+      clickedCount: campaign.clickedCount,
+      trackOpens: campaign.trackOpens,
+      trackClicks: campaign.trackClicks,
+      fontFamily: campaign.fontFamily,
       createdAt: campaign.createdAt,
       updatedAt: campaign.updatedAt,
       sentAt: campaign.sentAt,
@@ -83,6 +87,9 @@ export async function PATCH(
       preheader?: string | null;
       senderId?: string;
       targetGroupId?: string | null;
+      trackOpens?: boolean;
+      trackClicks?: boolean;
+      fontFamily?: string;
     };
 
     const data: Record<string, unknown> = {};
@@ -94,6 +101,9 @@ export async function PATCH(
     else if (typeof patch.preheader === "string") data.preheader = patch.preheader.trim() || null;
     if (patch.targetGroupId === null) data.targetGroupId = null;
     else if (typeof patch.targetGroupId === "string") data.targetGroupId = patch.targetGroupId || null;
+    if (typeof patch.trackOpens === "boolean") data.trackOpens = patch.trackOpens;
+    if (typeof patch.trackClicks === "boolean") data.trackClicks = patch.trackClicks;
+    if (typeof patch.fontFamily === "string") data.fontFamily = patch.fontFamily;
     if (typeof patch.senderId === "string" && patch.senderId) {
       const sender = await db.senderAccount.findUnique({ where: { id: patch.senderId } });
       if (!sender) {
@@ -129,6 +139,9 @@ export async function PATCH(
       sentCount: updated.sentCount,
       failedCount: updated.failedCount,
       openedCount: updated.openedCount,
+      trackOpens: updated.trackOpens,
+      trackClicks: updated.trackClicks,
+      fontFamily: updated.fontFamily,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
       sentAt: updated.sentAt,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { mergeGroups, type MappedContact } from "@/lib/contact-import";
 
 export const dynamic = "force-dynamic";
 
@@ -7,8 +8,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface ParsedRow {
   email: string;
-  name?: string;
-  tags?: string;
+  name?: string | null;
+  tags?: string | string[];
+  telegram?: string | null;
+  groups: string[];
 }
 
 function normalizeTags(tags?: string | string[]): string {
@@ -88,7 +91,7 @@ function parseCsv(text: string): ParsedRow[] {
     // skipped rows so the user sees how many were dropped.
     const name = nameIdx >= 0 ? cols[nameIdx] || undefined : undefined;
     const tags = tagsIdx >= 0 ? cols[tagsIdx] || undefined : undefined;
-    rows.push({ email: email.toLowerCase(), name, tags });
+    rows.push({ email: email.toLowerCase(), name, tags, groups: [] });
   }
   return rows;
 }
@@ -117,13 +120,16 @@ export async function POST(req: NextRequest) {
         .split(/[\r\n,;\s]+/)
         .map((e) => e.trim())
         .filter((e) => e.length > 0)
-        .map((email) => ({ email: email.toLowerCase() }));
+        .map((email) => ({ email: email.toLowerCase(), groups: [] }));
     } else if (Array.isArray(data.contacts)) {
-      rows = data.contacts
-        .map((c) => ({
-          email: (c.email || "").trim().toLowerCase(),
-          name: c.name && c.name.trim() ? c.name.trim() : undefined,
-          tags: typeof c.tags === "string" ? c.tags : Array.isArray(c.tags) ? c.tags.join(",") : undefined,
+      rows = (data.contacts as MappedContact[])
+        .filter((row): row is MappedContact => !!row && typeof row.email === "string")
+        .map((row) => ({
+          email: row.email.trim().toLowerCase(),
+          name: row.name?.trim() || undefined,
+          tags: row.tags,
+          telegram: row.telegram?.trim() || undefined,
+          groups: Array.isArray(row.groups) ? row.groups.filter(Boolean) : [],
         }))
         .filter((r) => r.email.length > 0);
     }
@@ -146,33 +152,65 @@ export async function POST(req: NextRequest) {
     }
     const skipped = rows.length - uniqueRows.length;
 
+    // Resolve group names once, creating missing groups. Case-insensitive
+    // because SQLite/Prisma cannot use `mode: "insensitive"` here.
+    const allGroupNames = mergeGroups([], uniqueRows.flatMap((row) => row.groups));
+    const existingGroups = await db.contactGroup.findMany({
+      select: { id: true, name: true },
+    });
+    const groupIdsByName = new Map(
+      existingGroups.map((group) => [group.name.toLowerCase(), group.id])
+    );
+    for (const name of allGroupNames) {
+      const key = name.toLowerCase();
+      if (groupIdsByName.has(key)) continue;
+      const created = await db.contactGroup.create({
+        data: { name },
+        select: { id: true },
+      });
+      groupIdsByName.set(key, created.id);
+    }
+
     let imported = 0;
     let updated = 0;
 
     for (const row of uniqueRows) {
       // email is indexed but not @unique in the schema, so use findFirst.
       const existing = await db.contact.findFirst({ where: { email: row.email } });
+      let contact;
       if (existing) {
-        await db.contact.update({
+        contact = await db.contact.update({
           where: { id: existing.id },
           data: {
             name: row.name ?? existing.name,
             tags: normalizeTags(row.tags ?? existing.tags),
+            telegram: row.telegram ?? existing.telegram,
             active: true,
           },
         });
         updated++;
       } else {
-        await db.contact.create({
+        contact = await db.contact.create({
           data: {
             email: row.email,
             name: row.name ?? null,
             tags: normalizeTags(row.tags),
+            telegram: row.telegram ?? null,
             source: "import",
             active: true,
           },
         });
         imported++;
+      }
+
+      for (const name of mergeGroups([], row.groups)) {
+        const groupId = groupIdsByName.get(name.toLowerCase());
+        if (!groupId) continue;
+        await db.contactGroupAssignment.upsert({
+          where: { contactId_groupId: { contactId: contact.id, groupId } },
+          create: { contactId: contact.id, groupId },
+          update: {},
+        });
       }
     }
 
