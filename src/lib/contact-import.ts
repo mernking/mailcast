@@ -67,6 +67,21 @@ function splitList(value: string): string[] {
     .filter(Boolean);
 }
 
+export function defaultColumnMapping(
+  headers: string[]
+): Record<string, ColumnMapping> {
+  const mapping: Record<string, ColumnMapping> = {};
+  for (const header of headers) {
+    if (/e-?mail|address/i.test(header)) mapping[header] = "email";
+    else if (/telegram|handle/i.test(header)) mapping[header] = "telegram";
+    else if (/name/i.test(header)) mapping[header] = "name";
+    else if (/tag/i.test(header)) mapping[header] = "tags";
+    else if (/group|segment/i.test(header)) mapping[header] = "group";
+    else mapping[header] = "skip";
+  }
+  return mapping;
+}
+
 export function mergeGroups(existing: string[], incoming: string[]): string[] {
   return [...existing, ...incoming].filter(
     (group, index, all) =>

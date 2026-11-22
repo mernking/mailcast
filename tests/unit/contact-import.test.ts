@@ -4,6 +4,7 @@ import {
   parseCsv,
   mapCsvRows,
   mergeGroups,
+  defaultColumnMapping,
   type ColumnMapping,
 } from "../../src/lib/contact-import.ts";
 
@@ -51,6 +52,20 @@ test("mapCsvRows splits a group column and merges default groups", () => {
   assert.equal(result.contacts.length, 1);
   assert.equal(result.contacts[0]?.email, "jane@example.com");
   assert.deepEqual(result.contacts[0]?.groups, ["Default", "News", "Other"]);
+});
+
+test("defaultColumnMapping guesses fields from header names", () => {
+  assert.deepEqual(
+    defaultColumnMapping(["Full Name", "Email Address", "Tags", "Telegram", "Group", "Unknown"]),
+    {
+      "Full Name": "name",
+      "Email Address": "email",
+      Tags: "tags",
+      Telegram: "telegram",
+      Group: "group",
+      Unknown: "skip",
+    }
+  );
 });
 
 test("mergeGroups returns a case-insensitive union", () => {
