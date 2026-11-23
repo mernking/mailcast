@@ -2,7 +2,8 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { decrypt } from "./crypto";
 import { renderEmailHtml, renderEmailText, type EmailContentType } from "./email-template";
 import { classifySendResult, type SendClassification } from "./send-result";
-import { inlineImagesToAttachments } from "./email-cid";
+import { inlineImagesToAttachments, type CidAttachment } from "./email-cid";
+import { hostInlineImages } from "./supabase-storage";
 import { prepareTrackedHtml } from "./tracking-store";
 
 export interface SenderLike {
@@ -97,10 +98,20 @@ export async function sendCampaignEmail(args: SendCampaignArgs): Promise<SendRes
   });
   const text = renderEmailText(body, contentType);
 
-  // Convert data: images to CID attachments
-  const { html: cidHtml, attachments } = inlineImagesToAttachments(html);
-  
-  let finalHtml = cidHtml;
+  // Host inline images on Supabase Storage so emails stay small (a data: URI
+  // inflates the message by ~33%). If hosting is unavailable, fall back to CID
+  // attachments so the email still renders.
+  let finalHtml = html;
+  let attachments: CidAttachment[] = [];
+  try {
+    finalHtml = await hostInlineImages(html);
+  } catch (err) {
+    console.error("[media] Supabase hosting failed, using CID fallback:", err);
+    const cid = inlineImagesToAttachments(html);
+    finalHtml = cid.html;
+    attachments = cid.attachments;
+  }
+
   const context = args.context;
   if (
     context?.baseUrl &&

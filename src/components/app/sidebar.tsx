@@ -5,6 +5,7 @@ import {
   Send,
   Users,
   Mail,
+  Image as ImageIcon,
   RectangleHorizontal,
   Workflow,
   Settings as SettingsIcon,
@@ -29,6 +30,7 @@ const NAV: NavItem[] = [
   { id: "forms", label: "Forms", icon: RectangleHorizontal },
   { id: "automations", label: "Automations", icon: Workflow },
   { id: "senders", label: "Senders", icon: Mail },
+  { id: "media", label: "Media", icon: ImageIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 

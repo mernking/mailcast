@@ -14,6 +14,7 @@ const TITLES: Record<DashboardSection, string> = {
   forms: "Forms",
   automations: "Automations",
   senders: "Senders",
+  media: "Media",
   settings: "Settings",
 };
 

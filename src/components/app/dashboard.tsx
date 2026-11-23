@@ -12,6 +12,7 @@ import { SenderList } from "./senders/sender-list";
 import { Settings } from "./settings";
 import { FormsSection } from "./forms/forms-section";
 import { AutomationsSection } from "./automations/automations-section";
+import { MediaManager } from "./media/media-manager";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,8 @@ export function Dashboard() {
         <Plus className="size-4" /> Add Gmail sender
       </Button>
     );
+  } else if (section === "media") {
+    content = <MediaManager />;
   } else if (section === "settings") {
     content = <Settings />;
   }

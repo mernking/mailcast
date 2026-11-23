@@ -49,11 +49,11 @@ interface ToolbarAction {
   arg?: string;
   /** If true, prompt the user for a URL before running the command. */
   promptUrl?: boolean;
-  /** If true, open a file picker and embed the chosen image as data URI. */
+  /** If true, open a file picker and upload the chosen image to Supabase. */
   pickImage?: boolean;
 }
 
-/** Convert an image file to a data URI for inline embedding. */
+/** Convert an image file to a data URI (used for the upload request). */
 export async function imageFileToDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -61,6 +61,21 @@ export async function imageFileToDataUri(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Failed to read image file"));
     reader.readAsDataURL(file);
   });
+}
+
+/** Upload an image through our API and return its permanent public URL. */
+async function uploadMediaImage(file: File): Promise<string> {
+  const dataUri = await imageFileToDataUri(file);
+  const res = await fetch("/api/media", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataUri }),
+  });
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || "Image upload failed");
+  }
+  return data.url;
 }
 
 const TOOLBAR_ACTIONS: ToolbarAction[] = [
@@ -132,17 +147,18 @@ export function RichTextEditor({ value, onChange, disabled }: RichTextEditorProp
       if (images.length === 0) return;
       rememberSelection();
       try {
-        const dataUris = await Promise.all(images.map(imageFileToDataUri));
+        const urls = await Promise.all(images.map(uploadMediaImage));
         insertHtml(
-          dataUris
+          urls
             .map(
-              (dataUri, index) =>
-                `<img src="${dataUri}" alt="${images[index]?.name.replace(/["<>]/g, "") ?? "image"}">`
+              (url, index) =>
+                `<img src="${url}" alt="${images[index]?.name.replace(/["<>]/g, "") ?? "image"}">`
             )
             .join("")
         );
+        toast.success("Image uploaded");
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Image processing failed");
+        toast.error(err instanceof Error ? err.message : "Image upload failed");
       }
     },
     [insertHtml, rememberSelection]
