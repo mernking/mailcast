@@ -2,11 +2,16 @@
  * Seed an administrator account for dashboard login.
  *
  * Usage:
- *   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='strong-pass' node scripts/seed-admin.mjs
- *   # or
- *   node scripts/seed-admin.mjs --email you@example.com --password 'strong-pass'
+ *   pnpm seed
+ *   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='strong-pass' pnpm seed
+ *   pnpm seed -- --email you@example.com --password 'strong-pass'
  *
- * If no password is supplied, a strong random one is generated and printed ONCE.
+ * Defaults (local development only):
+ *   email:    admin@mailcast.local
+ *   password: jhon3:16FGLW
+ *
+ * In production there is no known default password: if ADMIN_PASSWORD is not
+ * supplied, a strong random one is generated and printed once.
  */
 import './load-env.mjs';
 import crypto from 'node:crypto';
@@ -19,10 +24,24 @@ const arg = (flag) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 
-const email = (arg('--email') || process.env.ADMIN_EMAIL || 'admin@mailcast.local').trim().toLowerCase();
+const isProduction = process.env.NODE_ENV === 'production';
+const DEV_PASSWORD = 'jhon3:16FGLW';
+
+const email = (
+  arg('--email') ||
+  process.env.ADMIN_EMAIL ||
+  'admin@mailcast.local'
+).trim().toLowerCase();
+
 let password = arg('--password') || process.env.ADMIN_PASSWORD;
 
+if (!password && !isProduction) {
+  // Convenient known password for local testing.
+  password = DEV_PASSWORD;
+}
+
 if (!password) {
+  // Production: never ship a password committed in source control.
   password = crypto.randomBytes(18).toString('base64url');
   console.log('\n=== GENERATED ADMIN PASSWORD (shown once — save it now) ===');
   console.log(password);
@@ -44,6 +63,9 @@ try {
     select: { id: true, email: true },
   });
   console.log('Admin seeded:', user.email);
+  if (!isProduction) {
+    console.log('Login password:', password);
+  }
 } finally {
   await db.$disconnect();
 }
