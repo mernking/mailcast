@@ -1,11 +1,15 @@
 import { PrismaClient } from '@prisma/client'
+import { resolveDatabaseUrl } from './database-url.ts'
 
 // The running dev server keeps the PrismaClient instance on globalThis
 // across hot reloads. When the Prisma schema gains new fields the cached
 // instance can reject them at runtime; tagging the cache with a schema
 // version lets us invalidate it on the next module eval without restarting
 // the dev server.
-const PRISMA_CACHE_VERSION = 'auth-blog-1'
+const PRISMA_CACHE_VERSION = 'auth-blog-2'
+
+// Rewrite Supabase direct URLs to the pooler, which works from hosting platforms.
+const databaseUrl = resolveDatabaseUrl(process.env.DATABASE_URL)
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -28,6 +32,7 @@ export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: ['query'],
+    ...(databaseUrl ? { datasources: { db: { url: databaseUrl } } } : {}),
   })
 
 if (process.env.NODE_ENV !== 'production') {

@@ -17,6 +17,7 @@ import './load-env.mjs';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
+import { resolveDatabaseUrl } from '../src/lib/database-url.ts';
 
 const args = process.argv.slice(2);
 const arg = (flag) => {
@@ -53,7 +54,10 @@ if (password.length < 10) {
   process.exit(1);
 }
 
-const db = new PrismaClient();
+const databaseUrl = resolveDatabaseUrl(process.env.DATABASE_URL);
+const db = new PrismaClient(
+  databaseUrl ? { datasources: { db: { url: databaseUrl } } } : {}
+);
 try {
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await db.adminUser.upsert({
@@ -63,9 +67,8 @@ try {
     select: { id: true, email: true },
   });
   console.log('Admin seeded:', user.email);
-  if (!isProduction) {
-    console.log('Login password:', password);
-  }
+  console.log('Login password:', password);
+  console.log('Sign in at /login with the credentials above.');
 } finally {
   await db.$disconnect();
 }
