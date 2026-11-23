@@ -29,15 +29,17 @@ export function verifyPassword(password: string, hash: string): Promise<boolean>
  * be revoked by deleting the row.
  */
 export async function createSession(userId: string): Promise<string> {
-  const token = randomBytes(32).toString("base64url");
+  const raw = randomBytes(32).toString("base64url");
+  const jti = hashToken(raw).slice(0, 16);
+  // Sign first, then store the hash of exactly what the browser will send.
+  const token = await signSessionToken(userId, jti);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   await db.adminSession.create({
     data: { tokenHash: hashToken(token), userId, expiresAt },
   });
 
-  const jti = hashToken(token).slice(0, 16);
-  return signSessionToken(userId, jti);
+  return token;
 }
 
 /** Revoke the current session in the database. */

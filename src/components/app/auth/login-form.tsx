@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
@@ -13,7 +13,6 @@ import { Logo } from "@/components/landing/logo";
 import { apiFetch } from "@/components/app/use-api";
 
 export default function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,8 +28,9 @@ export default function LoginForm() {
       });
       toast.success("Signed in");
       const next = params.get("next");
-      router.push(next && next.startsWith("/dashboard") ? next : "/dashboard");
-      router.refresh();
+      const target = next && next.startsWith("/dashboard") ? next : "/dashboard";
+      // Full navigation guarantees the dashboard server layout sees the new cookie.
+      window.location.assign(target);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Sign in failed");
     } finally {
