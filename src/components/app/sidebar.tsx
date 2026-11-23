@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   LayoutDashboard,
   Send,
@@ -13,25 +14,29 @@ import {
   PanelLeftOpen,
   ArrowLeft,
 } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useAppStore, type DashboardSection } from "@/hooks/use-app-store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { apiFetch } from "./use-api";
 
 interface NavItem {
   id: DashboardSection;
   label: string;
+  href: string;
   icon: typeof LayoutDashboard;
 }
 
 const NAV: NavItem[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "campaigns", label: "Campaigns", icon: Send },
-  { id: "contacts", label: "Contacts", icon: Users },
-  { id: "forms", label: "Forms", icon: RectangleHorizontal },
-  { id: "automations", label: "Automations", icon: Workflow },
-  { id: "senders", label: "Senders", icon: Mail },
-  { id: "media", label: "Media", icon: ImageIcon },
-  { id: "settings", label: "Settings", icon: SettingsIcon },
+  { id: "overview", label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { id: "campaigns", label: "Campaigns", href: "/dashboard/campaigns", icon: Send },
+  { id: "contacts", label: "Contacts", href: "/dashboard/contacts", icon: Users },
+  { id: "forms", label: "Forms", href: "/dashboard/forms", icon: RectangleHorizontal },
+  { id: "automations", label: "Automations", href: "/dashboard/automations", icon: Workflow },
+  { id: "senders", label: "Senders", href: "/dashboard/senders", icon: Mail },
+  { id: "media", label: "Media", href: "/dashboard/media", icon: ImageIcon },
+  { id: "settings", label: "Settings", href: "/dashboard/settings", icon: SettingsIcon },
 ];
 
 function NavButton({
@@ -41,22 +46,15 @@ function NavButton({
   item: NavItem;
   collapsed: boolean;
 }) {
-  const section = useAppStore((s) => s.section);
-  const setSection = useAppStore((s) => s.setSection);
-  const openCampaignEditor = useAppStore((s) => s.openCampaignEditor);
-  const active = section === item.id;
+  const pathname = usePathname();
+  const active = item.href === "/dashboard"
+    ? pathname === "/dashboard"
+    : pathname.startsWith(item.href);
   const Icon = item.icon;
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (item.id === "campaigns") {
-          openCampaignEditor(null);
-        } else {
-          setSection(item.id);
-        }
-      }}
+    <Link
+      href={item.href}
       aria-current={active ? "page" : undefined}
       aria-label={item.label}
       title={collapsed ? item.label : undefined}
@@ -70,12 +68,11 @@ function NavButton({
     >
       <Icon className="size-4 shrink-0" />
       {!collapsed && <span>{item.label}</span>}
-    </button>
+    </Link>
   );
 }
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const setView = useAppStore((s) => s.setView);
   const collapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
 
@@ -88,12 +85,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           collapsed ? "px-2 flex flex-col items-center gap-2" : "px-5 flex items-center justify-between"
         )}
       >
-        <button
-          type="button"
-          onClick={() => {
-            setView("landing");
-            onNavigate?.();
-          }}
+        <Link
+          href="/"
+          onClick={() => onNavigate?.()}
           className="flex items-center gap-2 group"
           aria-label="Back to site"
           title="Back to site"
@@ -106,7 +100,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               MailCast
             </span>
           )}
-        </button>
+        </Link>
         {!collapsed && (
           <button
             type="button"
@@ -143,18 +137,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className={cn("pb-5", collapsed ? "px-2" : "px-3")}>
         {collapsed ? (
-          <button
-            type="button"
-            onClick={() => {
-              setView("landing");
-              onNavigate?.();
-            }}
+          <Link
+            href="/"
+            onClick={() => onNavigate?.()}
             aria-label="Back to site"
             title="Back to site"
             className="w-full flex justify-center rounded-lg py-2 text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
           >
             <ArrowLeft className="size-4" />
-          </button>
+          </Link>
         ) : (
           <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 flex flex-col gap-2">
             <div className="text-xs text-sidebar-foreground/80">
@@ -163,22 +154,44 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <div className="text-[11px] text-sidebar-foreground/50">
               Rate-limited to 4 emails/sec.
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-start px-0 text-sidebar-foreground/70 hover:bg-transparent hover:text-sidebar-foreground h-auto py-1"
-              onClick={() => {
-                setView("landing");
-                onNavigate?.();
-              }}
+            <Link
+              href="/"
+              onClick={() => onNavigate?.()}
+              className="text-xs text-sidebar-foreground/70 underline-offset-2 hover:underline"
             >
-              <span className="text-xs underline-offset-2 hover:underline">
-                Back to site
-              </span>
-            </Button>
+              Back to site
+            </Link>
+            <SignOutButton />
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SignOutButton() {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="justify-start px-0 text-sidebar-foreground/70 hover:bg-transparent hover:text-sidebar-foreground h-auto py-1"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await apiFetch("/api/auth/logout", { method: "POST" });
+          router.push("/login");
+          router.refresh();
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <span className="text-xs underline-offset-2 hover:underline">
+        {busy ? "Signing out…" : "Sign out"}
+      </span>
+    </Button>
   );
 }

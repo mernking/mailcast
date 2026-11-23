@@ -1,21 +1,21 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
-import { useAppStore, type DashboardSection } from "@/hooks/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useState } from "react";
 import { Sidebar } from "./sidebar";
 
-const TITLES: Record<DashboardSection, string> = {
-  overview: "Overview",
-  campaigns: "Campaigns",
-  contacts: "Contacts",
-  forms: "Forms",
-  automations: "Automations",
-  senders: "Senders",
-  media: "Media",
-  settings: "Settings",
+const TITLES: Record<string, string> = {
+  "/dashboard": "Overview",
+  "/dashboard/campaigns": "Campaigns",
+  "/dashboard/contacts": "Contacts",
+  "/dashboard/forms": "Forms",
+  "/dashboard/automations": "Automations",
+  "/dashboard/senders": "Senders",
+  "/dashboard/media": "Media",
+  "/dashboard/settings": "Settings",
 };
 
 interface TopbarProps {
@@ -23,13 +23,16 @@ interface TopbarProps {
 }
 
 export function Topbar({ action }: TopbarProps) {
-  const section = useAppStore((s) => s.section);
-  const editingCampaignId = useAppStore((s) => s.editingCampaignId);
+  const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  let title = TITLES[section];
-  if (section === "campaigns" && editingCampaignId) {
-    title = editingCampaignId === "new" ? "New campaign" : "Edit campaign";
+  let title = TITLES[pathname] ?? "Dashboard";
+  if (!title || title === "Dashboard") {
+    const seg = pathname.split("/").filter(Boolean);
+    title = TITLES[`/${seg[0] ?? "dashboard"}/${seg[1] ?? ""}`] ?? "Dashboard";
+  }
+  if (pathname.startsWith("/dashboard/campaigns/") && pathname !== "/dashboard/campaigns") {
+    title = pathname.endsWith("/new") ? "New campaign" : "Edit campaign";
   }
 
   return (

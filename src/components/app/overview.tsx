@@ -1,12 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Send, Users, MailCheck, Activity, ArrowRight } from "lucide-react";
 import { useFetch } from "./use-api";
 import { StatCard } from "./stat-card";
 import { SectionHeading } from "./section-heading";
 import { EmptyState } from "./empty-state";
 import { StatusBadge } from "./status-badge";
-import { useAppStore } from "@/hooks/use-app-store";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -42,8 +42,7 @@ interface StatsResponse {
 
 export function Overview() {
   const { data, loading } = useFetch<StatsResponse>("/api/stats");
-  const setSection = useAppStore((s) => s.setSection);
-  const openCampaignEditor = useAppStore((s) => s.openCampaignEditor);
+  const router = useRouter();
 
   const stats = data;
 
@@ -104,7 +103,7 @@ export function Overview() {
             variant="ghost"
             size="sm"
             className="rounded-full"
-            onClick={() => setSection("campaigns")}
+            onClick={() => router.push("/dashboard/campaigns")}
           >
             View all <ArrowRight className="size-3.5" />
           </Button>
@@ -128,7 +127,7 @@ export function Overview() {
                   <TableRow
                     key={c.id}
                     className="cursor-pointer"
-                    onClick={() => openCampaignEditor(c.id)}
+                    onClick={() => router.push(`/dashboard/campaigns/${c.id}`)}
                   >
                     <TableCell className="pl-4 font-medium max-w-[260px] truncate">
                       {c.title}
@@ -153,7 +152,7 @@ export function Overview() {
             title="No campaigns yet"
             description="Draft your first newsletter and broadcast it to your contacts from your own Gmail account."
             actionLabel="Create your first campaign"
-            onAction={() => openCampaignEditor("new")}
+            onAction={() => router.push("/dashboard/campaigns/new")}
           />
         )}
       </section>

@@ -79,6 +79,13 @@ model Campaign {
   trackClicks Boolean  @default(false) @map("trackClicks")
   /// Font family for the email body (helvetica, arial, verdana, georgia)
   fontFamily  String   @default("helvetica") @map("fontFamily")
+  /// Whether this newsletter is publicly readable on /blog
+  published   Boolean  @default(false) @map("published")
+  publishedAt DateTime? @map("publishedAt")
+  /// URL-friendly identifier for the public blog post
+  slug        String?  @unique @map("slug")
+  /// Short summary shown on the blog index
+  blogExcerpt String?  @map("blogExcerpt")
   createdAt   DateTime @default(now()) @map("createdAt")
   updatedAt   DateTime @updatedAt @map("updatedAt")
   sentAt      DateTime?  @map("sentAt")
@@ -272,4 +279,33 @@ model EmailTemplate {
   html      String?  // Compiled HTML
   createdAt DateTime @default(now()) @map("createdAt")
   updatedAt DateTime @updatedAt @map("updatedAt")
+}
+
+/// Back-office administrator able to sign in to the dashboard.
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String   @map("passwordHash")
+  createdAt    DateTime @default(now()) @map("createdAt")
+  updatedAt    DateTime @updatedAt @map("updatedAt")
+
+  sessions AdminSession[]
+
+  @@map("AdminUser")
+}
+
+/// Server-side login sessions. Opaque token is stored hashed.
+model AdminSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique @map("tokenHash")
+  userId    String   @map("userId")
+  expiresAt DateTime @map("expiresAt")
+  createdAt DateTime @default(now()) @map("createdAt")
+
+  user AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("AdminSession")
 }

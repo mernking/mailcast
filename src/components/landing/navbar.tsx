@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Menu, Send, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +10,6 @@ import {
   SheetTrigger,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useAppStore } from "@/hooks/use-app-store";
 import { Logo } from "./logo";
 
 const LINKS = [
@@ -17,10 +17,10 @@ const LINKS = [
   { label: "How it works", href: "#how" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
+  { label: "Blog", href: "/blog" },
 ] as const;
 
 export function Navbar() {
-  const setView = useAppStore((s) => s.setView);
   const [open, setOpen] = useState(false);
 
   return (
@@ -33,45 +33,36 @@ export function Navbar() {
         {/* Desktop nav */}
         <nav className="hidden items-center gap-1 md:flex">
           {LINKS.map((link) => (
-            <a
+            <Link
               key={link.href}
               href={link.href}
               className="rounded-full px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {link.label}
-            </a>
+            </Link>
           ))}
         </nav>
 
         {/* Desktop actions */}
         <div className="hidden items-center gap-2 md:flex">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 rounded-full px-4 text-sm font-medium"
-            onClick={() => setView("app")}
-          >
-            Sign in
+          <Button variant="ghost" size="sm" className="h-9 rounded-full px-4 text-sm font-medium" asChild>
+            <Link href="/login">Sign in</Link>
           </Button>
-          <Button
-            size="sm"
-            className="h-9 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            onClick={() => setView("app")}
-          >
-            Get started
-            <ArrowRight className="size-4" />
+          <Button size="sm" className="h-9 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90" asChild>
+            <Link href="/login">
+              Get started
+              <ArrowRight className="size-4" />
+            </Link>
           </Button>
         </div>
 
         {/* Mobile actions */}
         <div className="flex items-center gap-2 md:hidden">
-          <Button
-            size="sm"
-            className="h-9 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            onClick={() => setView("app")}
-          >
-            <Send className="size-4" />
-            Start
+          <Button size="sm" className="h-9 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90" asChild>
+            <Link href="/login">
+              <Send className="size-4" />
+              Start
+            </Link>
           </Button>
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
@@ -95,36 +86,25 @@ export function Navbar() {
               </div>
               <nav className="flex flex-col gap-1 p-3">
                 {LINKS.map((link) => (
-                  <a
+                  <Link
                     key={link.href}
                     href={link.href}
                     onClick={() => setOpen(false)}
                     className="rounded-lg px-3 py-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
                   >
                     {link.label}
-                  </a>
+                  </Link>
                 ))}
               </nav>
               <div className="mt-auto flex flex-col gap-2 border-t border-border p-4">
-                <Button
-                  variant="outline"
-                  className="h-11 rounded-full"
-                  onClick={() => {
-                    setOpen(false);
-                    setView("app");
-                  }}
-                >
-                  Sign in
+                <Button variant="outline" className="h-11 rounded-full" asChild>
+                  <Link href="/login" onClick={() => setOpen(false)}>Sign in</Link>
                 </Button>
-                <Button
-                  className="h-11 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-                  onClick={() => {
-                    setOpen(false);
-                    setView("app");
-                  }}
-                >
-                  Get started
-                  <ArrowRight className="size-4" />
+                <Button className="h-11 rounded-full bg-primary text-primary-foreground hover:bg-primary/90" asChild>
+                  <Link href="/login" onClick={() => setOpen(false)}>
+                    Get started
+                    <ArrowRight className="size-4" />
+                  </Link>
                 </Button>
               </div>
             </SheetContent>
