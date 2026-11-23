@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Logo } from "./logo";
 
 const FOOTER_LINKS: { label: string; href: string }[] = [
@@ -5,6 +6,7 @@ const FOOTER_LINKS: { label: string; href: string }[] = [
   { label: "How it works", href: "#how" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
+  { label: "Blog", href: "/blog" },
 ];
 
 const LEGAL_LINKS: { label: string; href: string }[] = [
@@ -33,12 +35,12 @@ export function Footer() {
             <ul className="mt-4 space-y-3">
               {FOOTER_LINKS.map((link) => (
                 <li key={link.label}>
-                  <a
+                  <Link
                     href={link.href}
                     className="text-sm text-foreground/80 transition-colors hover:text-foreground"
                   >
                     {link.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -52,12 +54,12 @@ export function Footer() {
             <ul className="mt-4 space-y-3">
               {LEGAL_LINKS.map((link) => (
                 <li key={link.label}>
-                  <a
+                  <Link
                     href={link.href}
                     className="text-sm text-foreground/80 transition-colors hover:text-foreground"
                   >
                     {link.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>

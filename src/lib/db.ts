@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client'
 // instance can reject them at runtime; tagging the cache with a schema
 // version lets us invalidate it on the next module eval without restarting
 // the dev server.
-const PRISMA_CACHE_VERSION = 'email-template-1'
+const PRISMA_CACHE_VERSION = 'auth-blog-1'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined

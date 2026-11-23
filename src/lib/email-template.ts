@@ -1,5 +1,5 @@
-import { markdownToHtml, markdownToText } from "./markdown";
-import { getFontStack, stripWrapperPadding } from "./email-font";
+import { markdownToHtml, markdownToText } from "./markdown.ts";
+import { getFontStack, stripWrapperPadding } from "./email-font.ts";
 
 export type EmailContentType = "markdown" | "html";
 

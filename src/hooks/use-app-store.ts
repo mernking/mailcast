@@ -25,6 +25,7 @@ export type DashboardSection =
   | "campaigns"
   | "contacts"
   | "senders"
+  | "media"
   | "forms"
   | "automations"
   | "settings";

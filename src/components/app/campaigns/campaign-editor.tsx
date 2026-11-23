@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import {
@@ -19,7 +20,6 @@ import {
 
 import { useFetch, apiFetch, fmtDateTime, truncate } from "../use-api";
 import { getPersistRequest } from "@/lib/campaign-persist";
-import { useAppStore } from "@/hooks/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,6 +88,10 @@ interface CampaignDetail {
   trackOpens: boolean;
   trackClicks: boolean;
   fontFamily: string;
+  published: boolean;
+  publishedAt: string | null;
+  slug: string | null;
+  blogExcerpt: string | null;
   createdAt: string;
   updatedAt: string;
   sentAt: string | null;
@@ -193,8 +197,7 @@ function stripTags(html: string): string {
 
 export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const isNew = campaignId === "new";
-  const openCampaignEditor = useAppStore((s) => s.openCampaignEditor);
-  const setSection = useAppStore((s) => s.setSection);
+  const router = useRouter();
 
   const campaignUrl = isNew ? null : `/api/campaigns/${campaignId}`;
   const { data: campaign, loading, error } = useFetch<CampaignDetail>(campaignUrl);
@@ -212,6 +215,10 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
   const [trackOpens, setTrackOpens] = useState(true);
   const [trackClicks, setTrackClicks] = useState(true);
   const [fontFamily, setFontFamily] = useState("helvetica");
+  const [published, setPublished] = useState(false);
+  const [blogExcerpt, setBlogExcerpt] = useState("");
+  const [slug, setSlug] = useState<string | null>(null);
+  const [publishPrompt, setPublishPrompt] = useState<string | null>(null);
   // Sentinel meaning "all active contacts" (targetGroupId = null).
   const [targetGroupId, setTargetGroupId] = useState<string>("__all__");
   const [hydrated, setHydrated] = useState(false);
@@ -234,6 +241,9 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setTrackOpens(campaign.trackOpens);
       setTrackClicks(campaign.trackClicks);
       setFontFamily(campaign.fontFamily || "helvetica");
+      setPublished(campaign.published);
+      setBlogExcerpt(campaign.blogExcerpt || "");
+      setSlug(campaign.slug || null);
       const ct = campaign.contentType === "html" ? "html" : "markdown";
       setContentType(ct);
       setTargetGroupId(campaign.targetGroupId || "__all__");
@@ -250,6 +260,9 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       setTrackOpens(true);
       setTrackClicks(true);
       setFontFamily("helvetica");
+      setPublished(false);
+      setBlogExcerpt("");
+      setSlug(null);
       setTargetGroupId("__all__");
     }
     setHydrated(true);
@@ -381,7 +394,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         body: JSON.stringify(payload),
       });
       toast.success("Draft saved");
-      if (isNew) openCampaignEditor(response.id);
+      if (isNew) router.replace(`/dashboard/campaigns/${response.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save draft");
     } finally {
@@ -401,7 +414,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         body: JSON.stringify(buildCampaignPayload()),
       });
       const savedId = isNew ? saved.id : campaignId;
-      if (isNew) openCampaignEditor(savedId);
+      if (isNew) router.replace(`/dashboard/campaigns/${savedId}`);
 
       const result = await apiFetch<{
         ok: boolean;
@@ -416,12 +429,33 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
       } else {
         toast.success(message, { description: result.warning });
       }
-      // Force a full refresh of campaign + stats.
-      window.location.reload();
+      // Ask whether to publish this newsletter to the public blog.
+      setPublishPrompt(savedId);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Broadcast failed");
     } finally {
       setSending(false);
+    }
+  };
+
+  const setBlogPublication = async (value: boolean, id = campaignId) => {
+    if (!id || id === "new") return;
+    try {
+      const result = await apiFetch<{
+        published: boolean;
+        slug: string | null;
+      }>(`/api/campaigns/${id}/publish`, {
+        method: "POST",
+        body: JSON.stringify({ published: value, excerpt: blogExcerpt }),
+      });
+      setPublished(result.published);
+      setSlug(result.slug);
+      setPublishPrompt(null);
+      toast.success(
+        result.published ? "Published to the blog" : "Removed from the blog"
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update publication");
     }
   };
 
@@ -446,7 +480,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
         <Button
           variant="ghost"
           className="mt-4"
-          onClick={() => openCampaignEditor(null)}
+          onClick={() => router.push("/dashboard/campaigns")}
         >
           <ArrowLeft className="size-4" /> Back to campaigns
         </Button>
@@ -506,7 +540,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
           variant="ghost"
           size="sm"
           className="rounded-full"
-          onClick={() => openCampaignEditor(null)}
+          onClick={() => router.push("/dashboard/campaigns")}
         >
           <ArrowLeft className="size-4" /> All campaigns
         </Button>
@@ -531,7 +565,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
             You need to add a Gmail sender before you can broadcast.{" "}
             <button
               className="underline font-medium"
-              onClick={() => setSection("senders")}
+              onClick={() => router.push("/dashboard/senders")}
             >
               Add a sender
             </button>
@@ -555,7 +589,7 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               : "You have no active contacts to send to. "}
             <button
               className="underline font-medium"
-              onClick={() => setSection("contacts")}
+              onClick={() => router.push("/dashboard/contacts")}
             >
               {targetGroupSelected ? "Manage group" : "Add contacts"}
             </button>
@@ -711,6 +745,35 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
               </SelectContent>
             </Select>
           </div>
+        </div>
+        <div className="flex flex-col gap-2 border-t pt-4">
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <Switch
+              checked={published}
+              onCheckedChange={(v) => void setBlogPublication(v)}
+              disabled={!canEdit || isNew}
+              aria-label="Publish to blog"
+            />
+            Public on blog
+          </label>
+          <p className="text-[11px] text-muted-foreground">
+            {published && slug
+              ? `Public at /blog/${slug}. Turn this off to keep the newsletter private to its recipients.`
+              : "Off by default. Published newsletters are readable by anyone on /blog."}
+          </p>
+          {published && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="blog-excerpt">Blog excerpt</Label>
+              <Textarea
+                id="blog-excerpt"
+                value={blogExcerpt}
+                onChange={(e) => setBlogExcerpt(e.target.value)}
+                placeholder="Short summary shown on the blog index"
+                className="min-h-[70px]"
+                disabled={!canEdit}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -949,6 +1012,38 @@ export function CampaignEditor({ campaignId }: { campaignId: string }) {
                     disabled={sending}
                   >
                     {sending ? <Loader2 className="size-4 animate-spin" /> : "Send now"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+              open={!!publishPrompt}
+              onOpenChange={(open) => !open && setPublishPrompt(null)}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Publish this newsletter to the blog?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Anyone will be able to read it at /blog. Leave it off to keep it
+                    private to the recipients who received the email. You can change
+                    this later in the campaign settings.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogAction
+                    onClick={() => setPublishPrompt(null)}
+                  >
+                    Keep private
+                  </AlertDialogAction>
+                  <AlertDialogAction
+                    onClick={() => {
+                      const id = publishPrompt;
+                      setPublishPrompt(null);
+                      if (id) void setBlogPublication(true, id);
+                    }}
+                  >
+                    Publish to blog
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

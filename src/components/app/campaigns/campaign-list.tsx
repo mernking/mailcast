@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Send, Trash2, Pencil, Plus } from "lucide-react";
 import { useFetch, apiFetch, fmtDate, truncate } from "../use-api";
-import { useAppStore } from "@/hooks/use-app-store";
 import { SectionHeading } from "../section-heading";
 import { EmptyState } from "../empty-state";
 import { StatusBadge } from "../status-badge";
@@ -45,7 +45,7 @@ interface CampaignListItem {
 
 export function CampaignList() {
   const { data, loading, refetch } = useFetch<CampaignListItem[]>("/api/campaigns");
-  const openCampaignEditor = useAppStore((s) => s.openCampaignEditor);
+  const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -72,7 +72,7 @@ export function CampaignList() {
         title="Campaigns"
         description="Draft, edit, and broadcast newsletters from your Gmail account."
         action={
-          <Button className="rounded-full" onClick={() => openCampaignEditor("new")}>
+          <Button className="rounded-full" onClick={() => router.push("/dashboard/campaigns/new")}>
             <Plus className="size-4" /> New campaign
           </Button>
         }
@@ -86,7 +86,7 @@ export function CampaignList() {
           title="No campaigns yet"
           description="Start a new draft. You can write in markdown, preview the email, and broadcast to all your active contacts."
           actionLabel="Create your first campaign"
-          onAction={() => openCampaignEditor("new")}
+          onAction={() => router.push("/dashboard/campaigns/new")}
         />
       ) : (
         <div className="bg-card border rounded-2xl overflow-hidden">
@@ -126,7 +126,7 @@ export function CampaignList() {
                         size="icon"
                         className="size-8"
                         aria-label="Edit campaign"
-                        onClick={() => openCampaignEditor(c.id)}
+                        onClick={() => router.push(`/dashboard/campaigns/${c.id}`)}
                       >
                         <Pencil className="size-4" />
                       </Button>

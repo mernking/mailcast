@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Mail,
@@ -20,7 +21,6 @@ import {
   Unplug,
 } from "lucide-react";
 import { useFetch, apiFetch } from "./use-api";
-import { useAppStore } from "@/hooks/use-app-store";
 import { SectionHeading } from "./section-heading";
 import { Button } from "@/components/ui/button";
 import {
@@ -374,8 +374,7 @@ function TelegramCard() {
 }
 
 export function Settings() {
-  const setView = useAppStore((s) => s.setView);
-  const setSection = useAppStore((s) => s.setSection);
+  const router = useRouter();
   const { data: stats } = useFetch<Stats>("/api/stats");
   const [deleteContactsOpen, setDeleteContactsOpen] = useState(false);
   const [deleteCampaignsOpen, setDeleteCampaignsOpen] = useState(false);
@@ -440,7 +439,7 @@ export function Settings() {
             variant="outline"
             size="sm"
             className="w-fit rounded-full"
-            onClick={() => setSection("senders")}
+            onClick={() => router.push("/dashboard/senders")}
           >
             Go to Senders
           </Button>
@@ -552,7 +551,7 @@ export function Settings() {
           variant="ghost"
           size="sm"
           className="rounded-full"
-          onClick={() => setView("landing")}
+          onClick={() => router.push("/")}
         >
           <ArrowLeft className="size-4" /> Back to site
         </Button>
